@@ -26,6 +26,7 @@ class _RegisterPageState extends State<RegisterPage> {
     );
   }
 
+  // Fungsi untuk menangani registrasi
   void _handleRegister() async {
     final String user = _usernameController.text.trim();
     final String email = _emailController.text.trim();
@@ -50,10 +51,11 @@ class _RegisterPageState extends State<RegisterPage> {
     }
 
     try {
+      // Register User
       await _dbService.registerUser(user, email, pass);
       if (mounted) {
         _showSnackBar("Registrasi Berhasil!", Colors.green);
-        Navigator.pop(context);
+        Navigator.pop(context); // Kembali ke halaman sebelumnya
       }
     } catch (e) {
       if (mounted) {
@@ -120,7 +122,7 @@ class _RegisterPageState extends State<RegisterPage> {
                   backgroundColor: Colors.green.shade600,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
                 ),
-                onPressed: _handleRegister,
+                onPressed: _handleRegister, // Menghubungkan dengan fungsi registrasi
                 child: const Text("DAFTAR SEKARANG", style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
               ),
             ),

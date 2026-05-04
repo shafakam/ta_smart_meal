@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
+import 'package:smart_meal_ta/providers/budget_providers.dart';
+import 'package:smart_meal_ta/providers/recommendation_providers.dart';
 
 // Import Services
 import 'services/database_service.dart';
-// import 'services/ai_service.dart'; // Aktifkan jika sudah digunakan
-
 // Import Providers
 import 'providers/login_providers.dart';
 
@@ -40,6 +40,8 @@ Future<void> main() async {
       providers: [
         // Inisialisasi LoginProvider
         ChangeNotifierProvider(create: (_) => LoginProvider()),
+        ChangeNotifierProvider(create: (_) => BudgetProvider()),
+        ChangeNotifierProvider(create: (_) => RecommendationProvider()),
 
         /* 
            Si B bisa menambahkan provider di sini nanti, contoh:

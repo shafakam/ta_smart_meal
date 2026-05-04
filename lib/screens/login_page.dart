@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:local_auth/local_auth.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import '../services/auth_service.dart';
+// import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../services/database_service.dart';
+import '../services/auth_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -34,13 +35,6 @@ class _LoginPageState extends State<LoginPage> {
     setState(() {
       _isBiometricEnabled = prefs.getBool('use_biometric') ?? false;
     });
-
-    // Opsional: Jika biometrik aktif, tunggu sebentar lalu picu otomatis
-    // if (_isBiometricEnabled) {
-    //   Future.delayed(const Duration(milliseconds: 500), () {
-    //     _handleBiometricLogin();
-    //   });
-    // }
   }
 
   void _showSnackBar(String message, Color color) {
@@ -55,6 +49,7 @@ class _LoginPageState extends State<LoginPage> {
     String email = _emailController.text.trim();
     String password = _passwordController.text.trim();
 
+    // Validasi input
     if (email.isEmpty || password.isEmpty) {
       _showSnackBar("Email dan password wajib diisi!", Colors.orange);
       return;
@@ -62,17 +57,23 @@ class _LoginPageState extends State<LoginPage> {
 
     setState(() => _isLoading = true);
 
-    var user = await _dbService.loginUser(email, password);
+    try {
+      var user = await _dbService.loginUser(
+          email, password); // Memanggil loginUser dari DatabaseService
 
-    if (user != null) {
-      final prefs = await SharedPreferences.getInstance();
-      // Simpan ID user agar biometrik tahu siapa yang masuk nanti
-      await prefs.setString('last_user_id', user['id'].toString());
-      
-      await _authService.saveSession(user['id'].toString());
-      if (mounted) Navigator.pushReplacementNamed(context, '/home');
-    } else {
-      if (mounted) _showSnackBar("Email atau Password salah!", Colors.redAccent);
+      if (user != null) {
+        final prefs = await SharedPreferences.getInstance();
+        // Simpan ID user agar biometrik tahu siapa yang masuk nanti
+        await prefs.setString('last_user_id', user['id'].toString());
+
+        await _authService
+            .saveSession(user['id'].toString()); // Menyimpan sesi login
+        if (mounted) Navigator.pushReplacementNamed(context, '/home');
+      } else {
+        _showSnackBar("Email atau Password salah!", Colors.redAccent);
+      }
+    } catch (e) {
+      _showSnackBar("Terjadi kesalahan: ${e.toString()}", Colors.red);
     }
 
     setState(() => _isLoading = false);
@@ -90,7 +91,8 @@ class _LoginPageState extends State<LoginPage> {
         return;
       }
 
-      bool canCheckBiometrics = await _auth.canCheckBiometrics || await _auth.isDeviceSupported();
+      bool canCheckBiometrics =
+          await _auth.canCheckBiometrics || await _auth.isDeviceSupported();
       if (!canCheckBiometrics) {
         _showSnackBar("Perangkat tidak mendukung biometrik", Colors.grey);
         return;
@@ -99,7 +101,7 @@ class _LoginPageState extends State<LoginPage> {
       bool authenticated = await _auth.authenticate(
         localizedReason: 'Gunakan sidik jari atau wajah untuk masuk',
         options: const AuthenticationOptions(
-          biometricOnly: true,
+          biometricOnly: false,
           stickyAuth: true,
           useErrorDialogs: true,
         ),
@@ -131,19 +133,25 @@ class _LoginPageState extends State<LoginPage> {
             padding: const EdgeInsets.all(30.0),
             child: Card(
               elevation: 10,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(20)),
               child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 40),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.restaurant_menu, size: 80, color: Colors.blue),
+                    const Icon(Icons.restaurant_menu,
+                        size: 80, color: Colors.blue),
                     const Text(
                       "Smart Meal",
-                      style: TextStyle(fontSize: 28, fontWeight: FontWeight.bold, color: Colors.blue),
+                      style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue),
                     ),
                     const SizedBox(height: 40),
-                    
+
                     // Input Email
                     TextField(
                       controller: _emailController,
@@ -151,11 +159,12 @@ class _LoginPageState extends State<LoginPage> {
                       decoration: InputDecoration(
                         labelText: "Email",
                         prefixIcon: const Icon(Icons.email),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(15)),
                       ),
                     ),
                     const SizedBox(height: 20),
-                    
+
                     // Input Password
                     TextField(
                       controller: _passwordController,
@@ -164,14 +173,18 @@ class _LoginPageState extends State<LoginPage> {
                         labelText: "Password",
                         prefixIcon: const Icon(Icons.lock),
                         suffixIcon: IconButton(
-                          icon: Icon(_obscureText ? Icons.visibility_off : Icons.visibility),
-                          onPressed: () => setState(() => _obscureText = !_obscureText),
+                          icon: Icon(_obscureText
+                              ? Icons.visibility_off
+                              : Icons.visibility),
+                          onPressed: () =>
+                              setState(() => _obscureText = !_obscureText),
                         ),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(15)),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(15)),
                       ),
                     ),
                     const SizedBox(height: 30),
-                    
+
                     if (_isLoading)
                       const CircularProgressIndicator()
                     else ...[
@@ -182,11 +195,15 @@ class _LoginPageState extends State<LoginPage> {
                         child: ElevatedButton(
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.blue.shade800,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(15)),
                           ),
                           onPressed: _handleLogin,
-                          child: const Text("LOGIN", 
-                            style: TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
+                          child: const Text("LOGIN",
+                              style: TextStyle(
+                                  fontSize: 18,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold)),
                         ),
                       ),
 
@@ -198,13 +215,14 @@ class _LoginPageState extends State<LoginPage> {
                             Expanded(child: Divider()),
                             Padding(
                               padding: EdgeInsets.symmetric(horizontal: 10),
-                              child: Text("Atau", style: TextStyle(color: Colors.grey)),
+                              child: Text("Atau",
+                                  style: TextStyle(color: Colors.grey)),
                             ),
                             Expanded(child: Divider()),
                           ],
                         ),
                         const SizedBox(height: 20),
-                        
+
                         // Tombol Biometrik yang Lebih Cantik
                         InkWell(
                           onTap: _handleBiometricLogin,
@@ -218,20 +236,24 @@ class _LoginPageState extends State<LoginPage> {
                             child: const Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.fingerprint, size: 30, color: Colors.blue),
+                                Icon(Icons.fingerprint,
+                                    size: 30, color: Colors.blue),
                                 SizedBox(width: 10),
-                                Text("Masuk dengan Biometrik", 
-                                  style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue)),
+                                Text("Masuk dengan Biometrik",
+                                    style: TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.blue)),
                               ],
                             ),
                           ),
                         ),
                       ],
                     ],
-                    
+
                     const SizedBox(height: 20),
                     TextButton(
-                      onPressed: () => Navigator.pushNamed(context, '/register'),
+                      onPressed: () =>
+                          Navigator.pushNamed(context, '/register'),
                       child: const Text("Belum punya akun? Daftar Sekarang"),
                     ),
                   ],
