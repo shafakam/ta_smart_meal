@@ -120,8 +120,7 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
                     )
                   else
                     ...recProv.recommendedMeals
-                        .map((meal) => _buildMealCard(meal))
-                        .toList(),
+                        .map((meal) => _buildMealCard(meal)),
 
                   const SizedBox(height: 30),
                   _buildSmartWeeklyPlan(recProv),
@@ -149,14 +148,20 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
             children: [
               Icon(Icons.auto_awesome, color: Colors.white),
               SizedBox(width: 10),
-              Text("AI Recommendations",
-                  style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold)),
+              Expanded(
+                child: Text("AI Recommendations",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold)),
+              ),
             ],
           ),
           Text("Personalized meal suggestions based on your preferences",
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(color: Colors.white70)),
         ],
       ),
@@ -170,16 +175,16 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(25),
         boxShadow: [
-          BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)
+          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)
         ],
       ),
       child: Column(
         children: [
-          Row(
+          const Row(
             children: [
               Icon(Icons.bolt, color: Colors.orange),
-              const SizedBox(width: 10),
-              const Text("Your Preferences",
+              SizedBox(width: 10),
+              Text("Your Preferences",
                   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             ],
           ),
@@ -189,7 +194,7 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
           _buildSlider("Target calories", _calories, 1500,
               (v) => setState(() => _calories = v)),
           DropdownButtonFormField<String>(
-            value: _dietType,
+            initialValue: _dietType,
             items: ["Balanced", "Vegan", "Keto", "Low Carb"]
                 .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                 .toList(),
@@ -300,9 +305,14 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(meal.name,
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold, fontSize: 16)),
+                        Expanded(
+                          child: Text(meal.name,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                  fontWeight: FontWeight.bold, fontSize: 16)),
+                        ),
+                        const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 4),
@@ -330,11 +340,21 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text("${meal.calories} cal",
-                  style: const TextStyle(color: Colors.grey)),
-              Text(_formatMoney(meal.price),
-                  style: const TextStyle(
-                      color: Colors.green, fontWeight: FontWeight.bold)),
+              Flexible(
+                child: Text("${meal.calories} cal",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.grey)),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(_formatMoney(meal.price),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.end,
+                    style: const TextStyle(
+                        color: Colors.green, fontWeight: FontWeight.bold)),
+              ),
             ],
           ),
           const SizedBox(height: 10),
@@ -346,7 +366,11 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
                   child: OutlinedButton.icon(
                     onPressed: () => _showRecipe(meal),
                     icon: const Icon(Icons.menu_book_outlined),
-                    label: const Text("Lihat Resep"),
+                    label: const Text(
+                      "Lihat Resep",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -369,6 +393,8 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
                     },
                     icon: const Icon(Icons.playlist_add, color: Colors.white),
                     label: const Text("Simpan",
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: TextStyle(color: Colors.white)),
                   ),
                 ),
@@ -407,13 +433,11 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
                       "Generate dulu supaya AI bisa susun saran pagi, siang, dan malam."),
                 )
               else
-                ...prov.weeklyPlan
-                    .map((meal) => _buildWeeklyDay(
-                          _mealTimeLabel(meal.mealTime),
-                          meal.name,
-                          _formatMoney(meal.price),
-                        ))
-                    .toList(),
+                ...prov.weeklyPlan.map((meal) => _buildWeeklyDay(
+                      _mealTimeLabel(meal.mealTime),
+                      meal.name,
+                      _formatMoney(meal.price),
+                    )),
               const SizedBox(height: 10),
               ElevatedButton(
                 onPressed: prov.weeklyPlan.isEmpty
@@ -458,7 +482,13 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
           Expanded(
               child: Text(menu,
                   style: const TextStyle(fontWeight: FontWeight.w500))),
-          Text(price, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+          Flexible(
+            child: Text(price,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.end,
+                style: const TextStyle(color: Colors.grey, fontSize: 12)),
+          ),
         ],
       ),
     );
@@ -466,10 +496,14 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
 
   String _mealTimeLabel(String mealTime) {
     final lower = mealTime.toLowerCase();
-    if (lower.contains('breakfast') || lower.contains('pagi')) return 'Pagi';
+    if (lower.contains('breakfast') || lower.contains('pagi')) {
+      return 'Pagi';
+    }
     if (lower.contains('dinner') ||
         lower.contains('malam') ||
-        lower.contains('sore')) return 'Sore';
+        lower.contains('sore')) {
+      return 'Sore';
+    }
     return 'Siang';
   }
 

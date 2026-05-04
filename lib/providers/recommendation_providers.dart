@@ -69,12 +69,17 @@ class RecommendationProvider with ChangeNotifier {
 
   String _normalizeMealTime(String value) {
     final lower = value.toLowerCase();
-    if (lower.contains('breakfast') || lower.contains('pagi'))
+    if (lower.contains('breakfast') || lower.contains('pagi')) {
       return 'Breakfast';
-    if (lower.contains('lunch') || lower.contains('siang')) return 'Lunch';
+    }
+    if (lower.contains('lunch') || lower.contains('siang')) {
+      return 'Lunch';
+    }
     if (lower.contains('dinner') ||
         lower.contains('malam') ||
-        lower.contains('sore')) return 'Dinner';
+        lower.contains('sore')) {
+      return 'Dinner';
+    }
     return 'Lunch';
   }
 }

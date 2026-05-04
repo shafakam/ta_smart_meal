@@ -41,9 +41,12 @@ class BudgetProvider with ChangeNotifier {
   // 2. FUNGSI TAMBAH
   Future<void> addExpense(Expense exp, int userId, bool addToBudget) async {
     try {
+      if (addToBudget) exp.isWeekly = 1;
       await DatabaseService().insertExpense(exp);
       if (addToBudget) {
         _spent += exp.price;
+        _recentExpenses.insert(0, exp);
+        notifyListeners();
         await _updateDBBudget(userId);
       }
       await loadData(userId);
@@ -61,8 +64,14 @@ class BudgetProvider with ChangeNotifier {
       await DatabaseService().updateExpense(exp);
 
       // Jika barang ini ada di list mingguan, update total pengeluaran (spent)
-      if (exp.isWeekly == 1) {
+      if (oldExpense.isWeekly == 1) {
         _spent = _spent - oldExpense.price + exp.price;
+        final index =
+            _recentExpenses.indexWhere((expense) => expense.id == exp.id);
+        if (index >= 0) {
+          _recentExpenses[index] = exp..isWeekly = oldExpense.isWeekly;
+        }
+        notifyListeners();
         await _updateDBBudget(userId);
       }
 
@@ -78,6 +87,8 @@ class BudgetProvider with ChangeNotifier {
       final item = _recentExpenses.firstWhere((e) => e.id == id);
       if (item.isWeekly == 1) {
         _spent -= item.price;
+        _recentExpenses.removeWhere((expense) => expense.id == id);
+        notifyListeners();
         await _updateDBBudget(userId);
       }
       await DatabaseService().deleteExpense(id);
@@ -91,6 +102,7 @@ class BudgetProvider with ChangeNotifier {
   Future<void> updateWeeklyLimit(double newLimit, int userId) async {
     try {
       _weeklyLimit = newLimit;
+      notifyListeners();
       await DatabaseService().insertBudget(Budget(
           id: 1,
           weeklyLimit: _weeklyLimit,
@@ -107,6 +119,10 @@ class BudgetProvider with ChangeNotifier {
   Future<void> addToWeeklyList(int expenseId, double price, int userId) async {
     await DatabaseService().updateExpenseStatus(expenseId, 1);
     _spent += price;
+    final index =
+        _recentExpenses.indexWhere((expense) => expense.id == expenseId);
+    if (index >= 0) _recentExpenses[index].isWeekly = 1;
+    notifyListeners();
     await _updateDBBudget(userId);
     await loadData(userId);
   }
@@ -115,13 +131,17 @@ class BudgetProvider with ChangeNotifier {
       int expenseId, double price, int userId) async {
     await DatabaseService().updateExpenseStatus(expenseId, 0);
     _spent -= price;
+    final index =
+        _recentExpenses.indexWhere((expense) => expense.id == expenseId);
+    if (index >= 0) _recentExpenses[index].isWeekly = 0;
+    notifyListeners();
     await _updateDBBudget(userId);
     await loadData(userId);
   }
 
   // 7. HELPER SYNC DATABASE
   Future<void> _updateDBBudget(int userId) async {
-    await DatabaseService().updateBudget(Budget(
+    await DatabaseService().insertBudget(Budget(
         id: 1,
         weeklyLimit: _weeklyLimit,
         spent: _spent,

@@ -14,7 +14,7 @@ class BudgetPage extends StatefulWidget {
   const BudgetPage({super.key, required this.userId});
 
   @override
-  _BudgetPageState createState() => _BudgetPageState();
+  State<BudgetPage> createState() => _BudgetPageState();
 }
 
 class _BudgetPageState extends State<BudgetPage> {
@@ -124,6 +124,7 @@ class _BudgetPageState extends State<BudgetPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  const SizedBox(height: 20),
                   const Text("Spending by Category",
                       style: TextStyle(
                           fontSize: 18,
@@ -207,9 +208,9 @@ class _BudgetPageState extends State<BudgetPage> {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.15),
+              color: Colors.white.withValues(alpha: 0.15),
               borderRadius: BorderRadius.circular(25),
-              border: Border.all(color: Colors.white.withOpacity(0.2)),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -253,11 +254,11 @@ class _BudgetPageState extends State<BudgetPage> {
                   children: [
                     Text("Terpakai: ${_formatMoney(prov.spent)}",
                         style: TextStyle(
-                            color: Colors.white.withOpacity(0.8),
+                            color: Colors.white.withValues(alpha: 0.8),
                             fontSize: 12)),
                     Text("Limit: ${_formatMoney(prov.weeklyLimit)}",
                         style: TextStyle(
-                            color: Colors.white.withOpacity(0.8),
+                            color: Colors.white.withValues(alpha: 0.8),
                             fontSize: 12)),
                   ],
                 ),
@@ -302,11 +303,12 @@ class _BudgetPageState extends State<BudgetPage> {
         width: (MediaQuery.of(context).size.width / 2) - 28,
         padding: const EdgeInsets.all(15),
         decoration: BoxDecoration(
-          color: isSelected ? color.withOpacity(0.1) : Colors.white,
+          color: isSelected ? color.withValues(alpha: 0.1) : Colors.white,
           borderRadius: BorderRadius.circular(20),
           border: isSelected ? Border.all(color: color, width: 2) : null,
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)
           ],
         ),
         child: Column(
@@ -494,7 +496,7 @@ class _BudgetPageState extends State<BudgetPage> {
                 decoration: const InputDecoration(labelText: "Harga"),
                 keyboardType: TextInputType.number),
             DropdownButtonFormField<String>(
-              value: category,
+              initialValue: category,
               items: ["Groceries", "Protein", "Fruits"]
                   .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                   .toList(),
@@ -505,18 +507,23 @@ class _BudgetPageState extends State<BudgetPage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () {
+                onPressed: () async {
+                  final price = double.tryParse(priceCtrl.text);
+                  if (price == null) return;
                   final exp = Expense(
                     id: DateTime.now().millisecondsSinceEpoch,
                     name: nameCtrl.text,
                     category: category,
-                    price: double.parse(priceCtrl.text),
+                    price: price,
                     date: DateFormat('yyyy-MM-dd')
                         .format(_nowForSelectedTimeZone()),
                     userId: userId,
-                    isWeekly: 0,
+                    isWeekly: 1,
                   );
-                  context.read<BudgetProvider>().addExpense(exp, userId, false);
+                  await context
+                      .read<BudgetProvider>()
+                      .addExpense(exp, userId, true);
+                  if (!context.mounted) return;
                   Navigator.pop(context);
                 },
                 child: const Text("Simpan"),
@@ -560,7 +567,7 @@ class _BudgetPageState extends State<BudgetPage> {
                 decoration: const InputDecoration(labelText: "Harga"),
                 keyboardType: TextInputType.number),
             DropdownButtonFormField<String>(
-              value: category,
+              initialValue: category,
               items: ["Groceries", "Protein", "Fruits"]
                   .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                   .toList(),
@@ -571,19 +578,22 @@ class _BudgetPageState extends State<BudgetPage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () {
+                onPressed: () async {
+                  final price = double.tryParse(priceCtrl.text);
+                  if (price == null) return;
                   final updatedExp = Expense(
                     id: item.id, // Pakai ID lama supaya tidak jadi data baru
                     name: nameCtrl.text,
                     category: category,
-                    price: double.parse(priceCtrl.text),
+                    price: price,
                     date: item.date,
                     userId: userId,
                     isWeekly: item.isWeekly,
                   );
-                  context
+                  await context
                       .read<BudgetProvider>()
                       .updateExpense(updatedExp, userId);
+                  if (!context.mounted) return;
                   Navigator.pop(context);
                 },
                 child: const Text("Simpan Perubahan"),
@@ -626,10 +636,13 @@ class _BudgetPageState extends State<BudgetPage> {
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: () {
-                  context
+                onPressed: () async {
+                  final limit = double.tryParse(limitCtrl.text);
+                  if (limit == null) return;
+                  await context
                       .read<BudgetProvider>()
-                      .updateWeeklyLimit(double.parse(limitCtrl.text), userId);
+                      .updateWeeklyLimit(limit, userId);
+                  if (!context.mounted) return;
                   Navigator.pop(context);
                 },
                 child: const Text("Update Budget"),

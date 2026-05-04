@@ -58,7 +58,7 @@ class _LoginPageState extends State<LoginPage> {
     setState(() => _isLoading = true);
 
     try {
-      var user = await _dbService.loginUser(
+      final user = await _dbService.loginUser(
           email, password); // Memanggil loginUser dari DatabaseService
 
       if (user != null) {
@@ -68,15 +68,18 @@ class _LoginPageState extends State<LoginPage> {
 
         await _authService
             .saveSession(user['id'].toString()); // Menyimpan sesi login
-        if (mounted) Navigator.pushReplacementNamed(context, '/home');
+        if (!mounted) return;
+        Navigator.pushReplacementNamed(context, '/home');
+        return;
       } else {
         _showSnackBar("Email atau Password salah!", Colors.redAccent);
       }
     } catch (e) {
-      _showSnackBar("Terjadi kesalahan: ${e.toString()}", Colors.red);
+      final message = e.toString().replaceFirst('Exception: ', '');
+      _showSnackBar(message, Colors.redAccent);
     }
 
-    setState(() => _isLoading = false);
+    if (mounted) setState(() => _isLoading = false);
   }
 
   // --- LOGIKA LOGIN BIOMETRIK ---

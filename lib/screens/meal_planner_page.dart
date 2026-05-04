@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
 import 'dart:convert';
-import 'dart:math';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -25,6 +24,10 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
   String _currentCurrency = 'IDR';
   String _selectedTimeZone = 'WIB';
   double _exchangeRate = 1.0;
+  bool _tiltNavigationEnabled = false;
+  StreamSubscription<GyroscopeEvent>? _tiltSubscription;
+  StreamSubscription<AccelerometerEvent>? _tiltPositionSubscription;
+  DateTime _lastTiltAt = DateTime.fromMillisecondsSinceEpoch(0);
 
   final MealStorageService _mealStorage = MealStorageService();
   Map<String, Map<String, dynamic>> _savedMealsStore = {};
@@ -37,6 +40,13 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
     initializeDateFormatting('id_ID', null).then((_) {
       _loadUserPreferences();
     });
+  }
+
+  @override
+  void dispose() {
+    _tiltSubscription?.cancel();
+    _tiltPositionSubscription?.cancel();
+    super.dispose();
   }
 
   // --- LOGIKA LOAD DATA & KONVERSI ---
@@ -138,6 +148,55 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
     await _mealStorage.savePlannerStore(_savedMealsStore);
   }
 
+  void _changeWeek(int delta) {
+    _weekOffset += delta;
+    _loadWeekData();
+  }
+
+  void _toggleTiltNavigation() {
+    setState(() => _tiltNavigationEnabled = !_tiltNavigationEnabled);
+
+    if (_tiltNavigationEnabled) {
+      _tiltSubscription ??= gyroscopeEventStream().listen(_handleTilt);
+      _tiltPositionSubscription ??=
+          accelerometerEventStream().listen(_handleTiltPosition);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Tilt navigation aktif")),
+      );
+    } else {
+      _tiltSubscription?.cancel();
+      _tiltSubscription = null;
+      _tiltPositionSubscription?.cancel();
+      _tiltPositionSubscription = null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("Tilt navigation nonaktif")),
+      );
+    }
+  }
+
+  void _handleTilt(GyroscopeEvent event) {
+    if (!_tiltNavigationEnabled || _isLoading) return;
+
+    final canTiltAgain = DateTime.now().difference(_lastTiltAt) >
+        const Duration(milliseconds: 900);
+    final strongestTurn = event.y.abs() >= event.x.abs() ? event.y : -event.x;
+    if (!canTiltAgain || strongestTurn.abs() < 1.1) return;
+
+    _lastTiltAt = DateTime.now();
+    _changeWeek(strongestTurn > 0 ? -1 : 1);
+  }
+
+  void _handleTiltPosition(AccelerometerEvent event) {
+    if (!_tiltNavigationEnabled || _isLoading) return;
+
+    final canTiltAgain = DateTime.now().difference(_lastTiltAt) >
+        const Duration(milliseconds: 900);
+    if (!canTiltAgain || event.x.abs() < 5.5) return;
+
+    _lastTiltAt = DateTime.now();
+    _changeWeek(event.x > 0 ? -1 : 1);
+  }
+
   void _addSavedMeal(int dayIndex, String type, Meal meal) {
     String dateKey = _weeklyMeals[dayIndex]['dateKey'];
     final mealData = _mealStorage.mealToPlannerMap(meal);
@@ -189,6 +248,16 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
             style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
         actions: [
           IconButton(
+              tooltip: _tiltNavigationEnabled
+                  ? "Matikan tilt navigation"
+                  : "Aktifkan tilt navigation",
+              icon: Icon(
+                Icons.screen_rotation_alt,
+                color:
+                    _tiltNavigationEnabled ? Colors.yellowAccent : Colors.white,
+              ),
+              onPressed: _toggleTiltNavigation),
+          IconButton(
               icon: const Icon(Icons.sync, color: Colors.white),
               onPressed: _loadUserPreferences)
         ],
@@ -224,12 +293,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
         children: [
           IconButton(
               icon: const Icon(Icons.arrow_back_ios, size: 20),
-              onPressed: () {
-                setState(() {
-                  _weekOffset--;
-                  _loadWeekData();
-                });
-              }),
+              onPressed: () => _changeWeek(-1)),
           Column(children: [
             Text(_weekOffset == 0 ? "Minggu Ini" : "Minggu $_weekOffset",
                 style: const TextStyle(fontWeight: FontWeight.bold)),
@@ -242,12 +306,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
           ]),
           IconButton(
               icon: const Icon(Icons.arrow_forward_ios, size: 20),
-              onPressed: () {
-                setState(() {
-                  _weekOffset++;
-                  _loadWeekData();
-                });
-              }),
+              onPressed: () => _changeWeek(1)),
         ],
       ),
     );
@@ -261,7 +320,8 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
           color: Colors.white,
           borderRadius: BorderRadius.circular(15),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.05), blurRadius: 10)
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)
           ]),
       child: Column(children: [
         ListTile(
@@ -314,45 +374,128 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
               : Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                      color: Colors.blue.withOpacity(0.05),
+                      color: Colors.blue.withValues(alpha: 0.05),
                       borderRadius: BorderRadius.circular(10)),
-                  child: Row(children: [
-                    ClipRRect(
-                        borderRadius: BorderRadius.circular(5),
-                        child: Image.network(meal['image_url'],
-                            width: 35, height: 35, fit: BoxFit.cover)),
-                    const SizedBox(width: 10),
-                    Expanded(
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                          Text(meal['nama'],
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 12),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis),
-                          Text(
-                              "${meal['cal']} kcal - ${cur.format((meal['harga'] as num).toDouble() * _exchangeRate)}",
-                              style: const TextStyle(fontSize: 10)),
-                        ])),
-                    GestureDetector(
-                      onTap: () {
-                        final dateKey = _weeklyMeals[dayIdx]['dateKey'];
-                        setState(() {
-                          _weeklyMeals[dayIdx]['meals'][type] = null;
-                          if (_savedMealsStore[dateKey] != null) {
-                            _savedMealsStore[dateKey]![type] = null;
-                          }
-                          _calculateTotalsLocally(dayIdx);
-                        });
-                        _persistPlanner();
-                      },
-                      child: const Icon(Icons.cancel,
-                          size: 18, color: Colors.redAccent),
-                    )
-                  ]),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () => _showPlannerRecipe(meal),
+                    child: Row(children: [
+                      ClipRRect(
+                          borderRadius: BorderRadius.circular(5),
+                          child: Image.network(meal['image_url'],
+                              width: 35, height: 35, fit: BoxFit.cover)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                            Text(meal['nama'],
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.bold, fontSize: 12),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis),
+                            Text(
+                                "${meal['cal']} kcal - ${cur.format((meal['harga'] as num).toDouble() * _exchangeRate)}",
+                                style: const TextStyle(fontSize: 10)),
+                          ])),
+                      GestureDetector(
+                        onTap: () {
+                          final dateKey = _weeklyMeals[dayIdx]['dateKey'];
+                          setState(() {
+                            _weeklyMeals[dayIdx]['meals'][type] = null;
+                            if (_savedMealsStore[dateKey] != null) {
+                              _savedMealsStore[dateKey]![type] = null;
+                            }
+                            _calculateTotalsLocally(dayIdx);
+                          });
+                          _persistPlanner();
+                        },
+                        child: const Icon(Icons.cancel,
+                            size: 18, color: Colors.redAccent),
+                      )
+                    ]),
+                  ),
                 )),
     ]);
+  }
+
+  void _showPlannerRecipe(Map<String, dynamic> meal) {
+    final ingredients = _stringListFromPlanner(meal['ingredients']);
+    final steps = _stringListFromPlanner(meal['steps']);
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
+      builder: (context) {
+        return DraggableScrollableSheet(
+          expand: false,
+          initialChildSize: 0.72,
+          minChildSize: 0.45,
+          maxChildSize: 0.92,
+          builder: (_, controller) => ListView(
+            controller: controller,
+            padding: const EdgeInsets.all(22),
+            children: [
+              Text(meal['nama']?.toString() ?? 'Menu',
+                  style: const TextStyle(
+                      fontSize: 22, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              Text(
+                "${meal['cal']} kcal - ${NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0).format((meal['harga'] as num).toDouble())}",
+                style: const TextStyle(
+                    color: Colors.green, fontWeight: FontWeight.w600),
+              ),
+              if ((meal['description']?.toString() ?? '').isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Text(meal['description'].toString(),
+                    style: const TextStyle(color: Colors.grey)),
+              ],
+              const SizedBox(height: 18),
+              const Text("Bahan",
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              if (ingredients.isEmpty)
+                const Text("Belum ada detail bahan.")
+              else
+                ...ingredients.map((item) => ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.check_circle_outline, size: 18),
+                      title: Text(item),
+                    )),
+              const SizedBox(height: 16),
+              const Text("Cara Masak",
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              if (steps.isEmpty)
+                const Text("Belum ada langkah resep.")
+              else
+                ...steps.asMap().entries.map((entry) => ListTile(
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      leading: CircleAvatar(
+                          radius: 12,
+                          child: Text("${entry.key + 1}",
+                              style: const TextStyle(fontSize: 11))),
+                      title: Text(entry.value),
+                    )),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  List<String> _stringListFromPlanner(dynamic value) {
+    if (value is List) {
+      return value
+          .map((item) => item.toString())
+          .where((item) => item.trim().isNotEmpty)
+          .toList();
+    }
+    return [];
   }
 
   Future<void> _showSearch(int dayIdx, String type) async {
@@ -388,47 +531,297 @@ class _SearchWidget extends StatefulWidget {
 
 class _SearchWidgetState extends State<_SearchWidget> {
   final TextEditingController _ctrl = TextEditingController();
+  final List<Meal> _mealDbMeals = [];
   Meal? _randomMeal;
   bool _shakeMode = false;
+  bool _isFetchingRandomMeal = false;
+  bool _isSearchingMealDb = false;
+  String? _mealDbError;
+  String? _randomMealError;
+  Timer? _searchDebounce;
   StreamSubscription<AccelerometerEvent>? _shakeSubscription;
   DateTime _lastShakeAt = DateTime.fromMillisecondsSinceEpoch(0);
+  int _searchToken = 0;
 
   @override
   void initState() {
     super.initState();
-    _shakeSubscription = accelerometerEvents.listen((event) {
+    _shakeSubscription = accelerometerEventStream().listen((event) {
       final force = event.x.abs() + event.y.abs() + event.z.abs();
       final canShakeAgain =
           DateTime.now().difference(_lastShakeAt) > const Duration(seconds: 1);
-      if (_shakeMode &&
-          force > 28 &&
-          canShakeAgain &&
-          widget.savedMeals.isNotEmpty) {
+      if (_shakeMode && force > 28 && canShakeAgain) {
         _lastShakeAt = DateTime.now();
-        _shakeRandomMenu();
+        _fetchRandomMealDb();
       }
     });
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _shakeSubscription?.cancel();
     _ctrl.dispose();
     super.dispose();
   }
 
-  void _shakeRandomMenu() {
-    if (widget.savedMeals.isEmpty) return;
+  Future<void> _fetchRandomMealDb() async {
+    if (_isFetchingRandomMeal) return;
     setState(() {
-      _randomMeal =
-          widget.savedMeals[Random().nextInt(widget.savedMeals.length)];
+      _isFetchingRandomMeal = true;
+      _randomMealError = null;
     });
+
+    try {
+      final url = Uri.https(
+        'www.themealdb.com',
+        '/api/json/v1/1/random.php',
+      );
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
+      if (!mounted) return;
+      if (response.statusCode != 200) {
+        throw Exception('MealDB gagal memberi menu random');
+      }
+
+      final decoded = json.decode(response.body) as Map<String, dynamic>;
+      final mealsRaw = decoded['meals'] as List?;
+      if (mealsRaw == null || mealsRaw.isEmpty || mealsRaw.first is! Map) {
+        throw Exception('Menu random tidak ditemukan');
+      }
+
+      setState(() {
+        _randomMeal =
+            _mealFromMealDb(Map<String, dynamic>.from(mealsRaw.first as Map));
+        _isFetchingRandomMeal = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isFetchingRandomMeal = false;
+        _randomMealError = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  void _onSearchChanged(String value) {
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 450), () {
+      _searchMealDb(value);
+    });
+    setState(() {});
+  }
+
+  Future<void> _searchMealDb(String rawQuery) async {
+    final query = rawQuery.trim();
+    final token = ++_searchToken;
+
+    if (query.isEmpty) {
+      if (!mounted) return;
+      setState(() {
+        _mealDbMeals.clear();
+        _mealDbError = null;
+        _isSearchingMealDb = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _isSearchingMealDb = true;
+      _mealDbError = null;
+    });
+
+    try {
+      final url = Uri.https(
+        'www.themealdb.com',
+        '/api/json/v1/1/search.php',
+        {'s': query},
+      );
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
+
+      if (token != _searchToken || !mounted) return;
+      if (response.statusCode != 200) {
+        throw Exception('MealDB gagal merespons');
+      }
+
+      final decoded = json.decode(response.body) as Map<String, dynamic>;
+      final mealsRaw = decoded['meals'] as List?;
+      final meals = mealsRaw == null
+          ? <Meal>[]
+          : mealsRaw
+              .whereType<Map>()
+              .map((item) => _mealFromMealDb(Map<String, dynamic>.from(item)))
+              .where((meal) => meal.name.isNotEmpty)
+              .toList();
+
+      setState(() {
+        _mealDbMeals
+          ..clear()
+          ..addAll(meals);
+        _isSearchingMealDb = false;
+      });
+    } catch (e) {
+      if (token != _searchToken || !mounted) return;
+      setState(() {
+        _mealDbMeals.clear();
+        _mealDbError = e.toString().replaceFirst('Exception: ', '');
+        _isSearchingMealDb = false;
+      });
+    }
+  }
+
+  Meal _mealFromMealDb(Map<String, dynamic> json) {
+    final name = json['strMeal']?.toString() ?? '';
+    final category = json['strCategory']?.toString() ?? '';
+    final area = json['strArea']?.toString() ?? '';
+    final ingredients = _mealDbIngredients(json);
+    final calories = _estimateCalories(
+      name: name,
+      category: category,
+      ingredients: ingredients,
+    );
+    final price = _estimatePrice(
+      name: name,
+      category: category,
+      area: area,
+      ingredients: ingredients,
+    );
+    final description = [
+      if (category.isNotEmpty) category,
+      if (area.isNotEmpty) area,
+    ].join(' - ');
+
+    return Meal(
+      id: json['idMeal']?.toString() ?? name,
+      name: name,
+      description: description.isEmpty ? 'Menu dari TheMealDB' : description,
+      price: price,
+      calories: calories,
+      dietType: category,
+      imageUrl:
+          json['strMealThumb']?.toString() ?? 'https://via.placeholder.com/150',
+      matchPercentage: 100,
+      ingredients: ingredients,
+      steps: _mealDbSteps(json['strInstructions']),
+    );
+  }
+
+  List<String> _mealDbIngredients(Map<String, dynamic> json) {
+    final ingredients = <String>[];
+    for (var i = 1; i <= 20; i++) {
+      final ingredient = json['strIngredient$i']?.toString().trim() ?? '';
+      final measure = json['strMeasure$i']?.toString().trim() ?? '';
+      if (ingredient.isNotEmpty) {
+        ingredients
+            .add(measure.isEmpty ? ingredient : '$measure $ingredient'.trim());
+      }
+    }
+    return ingredients;
+  }
+
+  int _estimateCalories({
+    required String name,
+    required String category,
+    required List<String> ingredients,
+  }) {
+    var calories = 120 + (ingredients.length * 18);
+    final text = '$name $category ${ingredients.join(' ')}'.toLowerCase();
+
+    final calorieRules = <String, int>{
+      'beef': 130,
+      'pork': 130,
+      'lamb': 140,
+      'chicken': 95,
+      'salmon': 110,
+      'fish': 80,
+      'tuna': 75,
+      'egg': 45,
+      'cheese': 70,
+      'cream': 65,
+      'butter': 55,
+      'oil': 55,
+      'rice': 95,
+      'pasta': 105,
+      'noodle': 100,
+      'potato': 65,
+      'bread': 70,
+      'flour': 60,
+      'sugar': 45,
+      'chocolate': 95,
+      'cake': 135,
+      'dessert': 125,
+      'vegetarian': -45,
+      'vegan': -55,
+      'salad': -70,
+      'soup': -35,
+      'seafood': 80,
+    };
+
+    calorieRules.forEach((keyword, value) {
+      if (text.contains(keyword)) calories += value;
+    });
+
+    return calories.clamp(180, 700).round();
+  }
+
+  double _estimatePrice({
+    required String name,
+    required String category,
+    required String area,
+    required List<String> ingredients,
+  }) {
+    var price = 12000.0 + (ingredients.length * 1800);
+    final text = '$name $category $area ${ingredients.join(' ')}'.toLowerCase();
+
+    final priceRules = <String, double>{
+      'beef': 18000,
+      'pork': 16000,
+      'lamb': 22000,
+      'salmon': 26000,
+      'seafood': 18000,
+      'shrimp': 16000,
+      'prawn': 16000,
+      'fish': 12000,
+      'tuna': 12000,
+      'chicken': 9000,
+      'cheese': 7000,
+      'cream': 6000,
+      'butter': 5000,
+      'pasta': 5000,
+      'rice': 3000,
+      'potato': 3000,
+      'dessert': 6000,
+      'cake': 8000,
+      'vegetarian': -3000,
+      'vegan': -4000,
+      'salad': -3000,
+    };
+
+    priceRules.forEach((keyword, value) {
+      if (text.contains(keyword)) price += value;
+    });
+
+    return price.clamp(15000, 85000).roundToDouble();
+  }
+
+  List<String> _mealDbSteps(dynamic value) {
+    final instructions = value?.toString().trim() ?? '';
+    if (instructions.isEmpty) return [];
+    return instructions
+        .split(RegExp(r'\r?\n|\. '))
+        .map((step) => step.trim())
+        .where((step) => step.isNotEmpty)
+        .toList();
   }
 
   @override
   Widget build(BuildContext context) {
+    final rupiah = NumberFormat.currency(
+      locale: 'id_ID',
+      symbol: 'Rp ',
+      decimalDigits: 0,
+    );
     final query = _ctrl.text.trim().toLowerCase();
-    final filteredMeals = query.isEmpty
+    final localMeals = query.isEmpty
         ? widget.savedMeals
         : widget.savedMeals
             .where((meal) =>
@@ -436,20 +829,25 @@ class _SearchWidgetState extends State<_SearchWidget> {
                 meal.description.toLowerCase().contains(query) ||
                 meal.dietType.toLowerCase().contains(query))
             .toList();
+    final filteredMeals = <String, Meal>{};
+    for (final meal in [..._mealDbMeals, ...localMeals]) {
+      filteredMeals[meal.id.isNotEmpty ? meal.id : meal.name.toLowerCase()] =
+          meal;
+    }
+    final searchResults = filteredMeals.values.toList();
 
     return Column(children: [
       Row(
         children: [
           Expanded(
             child: ElevatedButton.icon(
-              onPressed: widget.savedMeals.isEmpty
-                  ? null
-                  : () {
-                      setState(() {
-                        _shakeMode = true;
-                        _randomMeal = null;
-                      });
-                    },
+              onPressed: () {
+                setState(() {
+                  _shakeMode = true;
+                  _randomMeal = null;
+                  _randomMealError = null;
+                });
+              },
               icon: const Icon(Icons.casino_outlined),
               label: Text(_shakeMode ? "Shake HP Sekarang" : "Aktifkan Shake"),
             ),
@@ -457,11 +855,34 @@ class _SearchWidgetState extends State<_SearchWidget> {
         ],
       ),
       if (_shakeMode && _randomMeal == null)
-        const Padding(
-          padding: EdgeInsets.only(top: 12),
-          child: Text(
-            "Gerakkan HP untuk memilih menu random.",
-            style: TextStyle(color: Colors.grey),
+        Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Column(
+            children: [
+              Text(
+                _isFetchingRandomMeal
+                    ? "Mengambil menu random dari MealDB..."
+                    : "Gerakkan HP untuk memilih menu random dari MealDB.",
+                style: const TextStyle(color: Colors.grey),
+                textAlign: TextAlign.center,
+              ),
+              if (_isFetchingRandomMeal) ...[
+                const SizedBox(height: 8),
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ],
+              if (_randomMealError != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  _randomMealError!,
+                  style: const TextStyle(color: Colors.redAccent),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ],
           ),
         ),
       if (_randomMeal != null) ...[
@@ -495,47 +916,63 @@ class _SearchWidgetState extends State<_SearchWidget> {
       TextField(
         controller: _ctrl,
         decoration: InputDecoration(
-            hintText: "Cari menu yang sudah disimpan...",
+            hintText: "Cari menu dari MealDB...",
             prefixIcon: const Icon(Icons.search),
+            suffixIcon: _isSearchingMealDb
+                ? const Padding(
+                    padding: EdgeInsets.all(12),
+                    child: SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : null,
             border:
                 OutlineInputBorder(borderRadius: BorderRadius.circular(15))),
-        onChanged: (_) => setState(() {}),
+        onChanged: _onSearchChanged,
       ),
       const SizedBox(height: 20),
       Expanded(
-        child: widget.savedMeals.isEmpty
+        child: query.isEmpty
             ? const Center(
-                child: Text(
-                    "Belum ada menu tersimpan. Simpan dulu dari halaman Saran Menu."),
+                child: Text("Ketik nama menu untuk mencari dari TheMealDB."),
               )
-            : filteredMeals.isEmpty
-                ? const Center(child: Text("Menu tersimpan tidak ditemukan"))
-                : ListView.builder(
-                    itemCount: filteredMeals.length,
-                    itemBuilder: (context, i) {
-                      final meal = filteredMeals[i];
-                      return ListTile(
-                        leading: ClipRRect(
-                          borderRadius: BorderRadius.circular(5),
-                          child: Image.network(
-                            meal.imageUrl,
-                            width: 45,
-                            height: 45,
-                            fit: BoxFit.cover,
-                            errorBuilder: (_, __, ___) =>
-                                const Icon(Icons.restaurant_menu),
+            : _isSearchingMealDb
+                ? const Center(child: CircularProgressIndicator())
+                : _mealDbError != null
+                    ? Center(child: Text(_mealDbError!))
+                    : searchResults.isEmpty
+                        ? const Center(
+                            child: Text("Menu tidak ditemukan di MealDB"))
+                        : ListView.builder(
+                            itemCount: searchResults.length,
+                            itemBuilder: (context, i) {
+                              final meal = searchResults[i];
+                              return ListTile(
+                                leading: ClipRRect(
+                                  borderRadius: BorderRadius.circular(5),
+                                  child: Image.network(
+                                    meal.imageUrl,
+                                    width: 45,
+                                    height: 45,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) =>
+                                        const Icon(Icons.restaurant_menu),
+                                  ),
+                                ),
+                                title: Text(meal.name,
+                                    style: const TextStyle(fontSize: 14)),
+                                subtitle: Text(
+                                  "${meal.description} - ${meal.calories} kcal - ${rupiah.format(meal.price)}",
+                                ),
+                                onTap: () {
+                                  widget.onSelectSavedMeal(meal);
+                                  Navigator.pop(context);
+                                },
+                              );
+                            },
                           ),
-                        ),
-                        title: Text(meal.name,
-                            style: const TextStyle(fontSize: 14)),
-                        subtitle: Text("${meal.calories} kcal"),
-                        onTap: () {
-                          widget.onSelectSavedMeal(meal);
-                          Navigator.pop(context);
-                        },
-                      );
-                    },
-                  ),
       ),
     ]);
   }
