@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
-// Import semua halaman yang diperlukan
 import 'profile_page.dart';
 import 'meal_planner_page.dart';
 import 'budget_page.dart';
 import 'ai_recommendation_page.dart';
+import 'game_page.dart';
+import '../services/auth_service.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -15,14 +16,19 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   // Set ke 1 agar saat pertama buka langsung tampil Meal Planner (Tugas Si B)
   int _selectedIndex = 1;
+  int _userId = 1;
 
-  // List ini HARUS memiliki 4 item karena BottomNav punya 4 item
-  final List<Widget> _pages = [
-    const ProfilePage(), // Index 0
-    const MealPlannerPage(), // Index 1
-    // const BudgetPage(),           // Index 2
-    // const AiRecommendationsPage(), // Index 3
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _loadUserId();
+  }
+
+  Future<void> _loadUserId() async {
+    final id = await AuthService().getUserId();
+    if (!mounted || id == null) return;
+    setState(() => _userId = int.tryParse(id) ?? 1);
+  }
 
   void _onItemTapped(int index) {
     setState(() {
@@ -32,12 +38,16 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
+    final pages = [
+      const ProfilePage(),
+      const MealPlannerPage(),
+      BudgetPage(userId: _userId),
+      const SaranMenuPage(),
+      const GamePage(),
+    ];
+
     return Scaffold(
-      // IndexedStack menjaga state halaman agar tidak reload saat pindah tab
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: _pages,
-      ),
+      body: pages[_selectedIndex],
       bottomNavigationBar: BottomNavigationBar(
         type: BottomNavigationBarType.fixed,
         currentIndex: _selectedIndex,
@@ -65,6 +75,11 @@ class _HomePageState extends State<HomePage> {
             icon: Icon(Icons.auto_awesome_outlined),
             activeIcon: Icon(Icons.auto_awesome),
             label: 'Saran',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.videogame_asset_outlined),
+            activeIcon: Icon(Icons.videogame_asset),
+            label: 'Game',
           ),
         ],
       ),

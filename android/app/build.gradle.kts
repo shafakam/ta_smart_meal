@@ -5,8 +5,18 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+fun envValue(name: String, fallback: String = ""): String {
+    val envFile = rootProject.file("../.env")
+    if (!envFile.exists()) return fallback
+    return envFile.readLines()
+        .firstOrNull { it.startsWith("$name=") }
+        ?.substringAfter("=")
+        ?.trim()
+        ?: fallback
+}
+
 android {
-    namespace = "com.example.smart_meal_tpm"
+    namespace = "com.example.smart_meal_ta"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -21,13 +31,14 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.smart_meal_tpm"
+        applicationId = "com.example.smart_meal_ta"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        manifestPlaceholders["googleMapsApiKey"] = envValue("GOOGLE_MAPS_API_KEY")
     }
 
     buildTypes {

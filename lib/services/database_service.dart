@@ -1,7 +1,10 @@
+import 'package:smart_meal_ta/models/meal.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'dart:convert';
 import 'package:crypto/crypto.dart';
+import '../models/budget.dart';
+import '../models/expense.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
@@ -17,25 +20,14 @@ class DatabaseService {
   }
 
   Future<Database> _initDatabase() async {
-    // Mendapatkan path direktori database pada perangkat
     String databasesPath = await getDatabasesPath();
     String path = join(databasesPath, 'smart_meal_planner.db');
 
-    // MENCETAK LOKASI DATABASE KE CONSOLE (Cek Debug Console VS Code)
-    // Ini membantu kamu menemukan lokasi file di Device Explorer
-    print("-----------------------------------------");
-    print("LOKASI DATABASE KAMU: $path");
-    print("-----------------------------------------");
-
-    return await openDatabase(
-      path,
-      version: 1,
-      onCreate: _onCreate,
-    );
+    return await openDatabase(path,
+        version: 2, onCreate: _onCreate, onUpgrade: _onUpgrade);
   }
 
   Future _onCreate(Database db, int version) async {
-    // Tabel User
     await db.execute('''
       CREATE TABLE users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -46,38 +38,70 @@ class DatabaseService {
       )
     ''');
 
-    // Tabel Budget
     await db.execute('''
-      CREATE TABLE budgets (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        weekly_limit REAL,
+      CREATE TABLE budgets(
+        id INTEGER PRIMARY KEY,
+        weeklyLimit REAL,
         spent REAL,
-        FOREIGN KEY (user_id) REFERENCES users (id)
+        remaining REAL,
+        userId INTEGER
       )
     ''');
 
-    // Tabel Meal Planner
     await db.execute('''
-      CREATE TABLE meal_plans (
+      CREATE TABLE expenses(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        meal_name TEXT,
-        calories INTEGER,
+        name TEXT,
+        category TEXT,
         price REAL,
         date TEXT,
-        type TEXT, 
-        FOREIGN KEY (user_id) REFERENCES users (id)
+        userId INTEGER,
+        isWeekly INTEGER DEFAULT 0 
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE planner(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        day TEXT,
+        mealName TEXT,
+        calories INTEGER,
+        price REAL
       )
     ''');
   }
 
-  // Registrasi: Simpan password yang sudah di-hash
-  Future<int> registerUser(String username, String email, String password) async {
+  Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS planner(
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          day TEXT,
+          mealName TEXT,
+          calories INTEGER,
+          price REAL
+        )
+      ''');
+    }
+  }
+
+  // --- FUNGSI USER ---
+  Future<int> registerUser(
+      String username, String email, String password) async {
     final db = await database;
+    List<Map<String, dynamic>> result = await db.query(
+      'users',
+      where: 'email = ? OR username = ?',
+      whereArgs: [email, username],
+    );
+
+    if (result.isNotEmpty) {
+      throw Exception("Email atau username sudah terdaftar.");
+    }
+
     var bytes = utf8.encode(password);
     var digest = sha256.convert(bytes);
-    
+
     return await db.insert('users', {
       'username': username,
       'email': email,
@@ -85,22 +109,120 @@ class DatabaseService {
     });
   }
 
-  // Login: Mencocokkan EMAIL & password yang dimasukkan
   Future<Map<String, dynamic>?> loginUser(String email, String password) async {
     Database db = await database;
-
-    // 1. Ubah password input menjadi hash untuk dibandingkan dengan yang ada di DB
     var bytes = utf8.encode(password);
     var digest = sha256.convert(bytes);
     String hashedPassword = digest.toString();
 
-    // 2. Cari berdasarkan email dan password yang sudah di-hash
     List<Map<String, dynamic>> results = await db.query(
       'users',
       where: 'email = ? AND password = ?',
       whereArgs: [email, hashedPassword],
     );
 
-    return results.isNotEmpty ? results.first : null;
+    if (results.isNotEmpty) return results.first;
+    throw Exception("Email atau password salah.");
+  }
+
+  // --- FUNGSI BUDGET ---
+  Future<List<Budget>> getBudgetsByUserId(int userId) async {
+    final db = await database;
+    var result = await db.query(
+      'budgets',
+      where: 'userId = ?', // SUDAH DIPERBAIKI: userId (tanpa underscore)
+      whereArgs: [userId],
+    );
+
+    return result.isNotEmpty
+        ? result.map((e) => Budget.fromMap(e)).toList()
+        : [];
+  }
+
+  Future<int> insertBudget(Budget budget) async {
+    final db = await database;
+    return await db.insert('budgets', budget.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<int> updateBudget(Budget budget) async {
+    final db = await database;
+    return await db.update(
+      'budgets',
+      budget.toMap(),
+      where: 'id = ?',
+      whereArgs: [budget.id],
+    );
+  }
+
+  // --- FUNGSI EXPENSE ---
+  Future<List<Expense>> getExpensesByUserId(int userId) async {
+    final db = await database;
+    var result = await db.query(
+      'expenses',
+      where: 'userId = ?',
+      whereArgs: [userId],
+      orderBy: 'id DESC',
+    );
+    return result.isNotEmpty
+        ? result.map((e) => Expense.fromMap(e)).toList()
+        : [];
+  }
+
+  Future<int> insertExpense(Expense expense) async {
+    final db = await database;
+    return await db.insert('expenses', expense.toMap());
+  }
+
+  Future<int> updateExpense(Expense expense) async {
+    final db = await database;
+    return await db.update(
+      'expenses',
+      expense.toMap(),
+      where: 'id = ?',
+      whereArgs: [expense.id],
+    );
+  }
+
+  // FUNGSI PENTING: Untuk ganti status mingguan (Tambah/Hapus)
+  Future<int> updateExpenseStatus(int id, int isWeekly) async {
+    final db = await database;
+    return await db.update(
+      'expenses',
+      {'isWeekly': isWeekly},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  Future<int> deleteExpense(int id) async {
+    final db = await database;
+    return await db.delete(
+      'expenses',
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  // Tambahkan di dalam class DatabaseService
+  Future<bool> checkIfDayIsFull(String day) async {
+    final db = await database;
+    // Contoh: dianggap penuh jika sudah ada 3 jadwal makan (Breakfast, Lunch, Dinner)
+    final List<Map<String, dynamic>> maps = await db.query(
+      'planner',
+      where: 'day = ?',
+      whereArgs: [day],
+    );
+    return maps.length >= 3;
+  }
+
+  Future<void> insertToPlanner(String day, Meal meal) async {
+    final db = await database;
+    await db.insert('planner', {
+      'day': day,
+      'mealName': meal.name,
+      'calories': meal.calories,
+      'price': meal.price,
+    });
   }
 }

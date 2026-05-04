@@ -1,5 +1,6 @@
 import 'package:local_auth/local_auth.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter/foundation.dart';
 
 class AuthService {
   final LocalAuthentication auth = LocalAuthentication();
@@ -21,12 +22,13 @@ class AuthService {
       return await auth.authenticate(
         localizedReason: 'Silakan scan sidik jari untuk login ke Smart Meal',
         options: const AuthenticationOptions(
-          biometricOnly: true, // Hanya mengizinkan sidik jari/wajah, bukan PIN
-          stickyAuth: true, // Tetap mencoba jika aplikasi pindah ke background
+          biometricOnly: false,
+          stickyAuth: true,
+          useErrorDialogs: true,
         ),
       );
     } catch (e) {
-      print("Error Biometrik: $e");
+      debugPrint("Error Biometrik: $e");
       return false;
     }
   }

@@ -11,6 +11,8 @@ dependencies:
     sdk: flutter
   cupertino_icons: ^1.0.6
 
+  google_maps_flutter: ^2.5.3
+  google_maps_webservice: ^0.0.20-nullsafety.5
   # --- State Management ---
   # Digunakan di folder /providers
   provider: ^6.1.2
@@ -24,9 +26,9 @@ dependencies:
 
   # --- Networking & AI ---
   # Digunakan di /services/api_service.dart dan /services/ai_service.dart
-  http: ^1.2.0
+  http: ^0.13.3
   dio: ^5.4.1
-  google_generative_ai: ^0.2.0 # Library LLM Gemini
+  # yey# Library LLM Gemini
 
   # --- Security & Auth ---
   # Digunakan di /services/auth_service.dart dan /services/encryption_service.dart
@@ -36,7 +38,7 @@ dependencies:
 
   # --- Location Based Services (LBS) ---
   # Digunakan di /services/location_service.dart
-  geolocator: ^10.1.0
+  geolocator: ^11.0.0
   # google_maps_flutter: ^2.5.3
 
   # flutter_local_notifications: ^17.0.0
@@ -50,13 +52,14 @@ dependencies:
   flutter_dotenv: ^5.1.0
   # Format mata uang & waktu (WIB, London, dll)
   intl: ^0.19.0
-  timezone: ^0.9.2
+  timezone: ^0.9.4
   # Untuk ambil foto profil di /screens/profile_page.dart
   image_picker: ^1.0.7
 
   # --- Game Engine ---
   # Digunakan di folder /game
   flame: ^1.14.0
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
