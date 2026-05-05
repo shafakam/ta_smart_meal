@@ -121,9 +121,6 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
                   else
                     ...recProv.recommendedMeals
                         .map((meal) => _buildMealCard(meal)),
-
-                  const SizedBox(height: 30),
-                  _buildSmartWeeklyPlan(recProv),
                 ],
               ),
             ),
@@ -303,7 +300,6 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Expanded(
                           child: Text(meal.name,
@@ -311,19 +307,6 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
                                   fontWeight: FontWeight.bold, fontSize: 16)),
-                        ),
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                              color: Colors.green.shade50,
-                              borderRadius: BorderRadius.circular(10)),
-                          child: Text("${meal.matchPercentage}%",
-                              style: const TextStyle(
-                                  color: Colors.green,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 12)),
                         ),
                       ],
                     ),
@@ -360,151 +343,19 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
           const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
-            child: Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: () => _showRecipe(meal),
-                    icon: const Icon(Icons.menu_book_outlined),
-                    label: const Text(
-                      "Lihat Resep",
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFEC4899),
-                        shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10))),
-                    onPressed: () async {
-                      await context
-                          .read<RecommendationProvider>()
-                          .saveMeal(meal);
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                            content:
-                                Text("${meal.name} disimpan ke daftar menu.")),
-                      );
-                    },
-                    icon: const Icon(Icons.playlist_add, color: Colors.white),
-                    label: const Text("Simpan",
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: Colors.white)),
-                  ),
-                ),
-              ],
+            child: OutlinedButton.icon(
+              onPressed: () => _showRecipe(meal),
+              icon: const Icon(Icons.menu_book_outlined),
+              label: const Text(
+                "Lihat Resep",
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           )
         ],
       ),
     );
-  }
-
-  Widget _buildSmartWeeklyPlan(RecommendationProvider prov) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Row(
-          children: [
-            Icon(Icons.calendar_month, color: Color(0xFF8B5CF6)),
-            SizedBox(width: 10),
-            Text("Smart Weekly Plan",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        const SizedBox(height: 15),
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-              color: Colors.purple.shade50,
-              borderRadius: BorderRadius.circular(20)),
-          child: Column(
-            children: [
-              if (prov.weeklyPlan.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 12),
-                  child: Text(
-                      "Generate dulu supaya AI bisa susun saran pagi, siang, dan malam."),
-                )
-              else
-                ...prov.weeklyPlan.map((meal) => _buildWeeklyDay(
-                      _mealTimeLabel(meal.mealTime),
-                      meal.name,
-                      _formatMoney(meal.price),
-                    )),
-              const SizedBox(height: 10),
-              ElevatedButton(
-                onPressed: prov.weeklyPlan.isEmpty
-                    ? null
-                    : () async {
-                        final added = await prov.applyWeeklyPlan();
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              added == 0
-                                  ? "Planner minggu ini sudah penuh."
-                                  : "$added menu berhasil ditambahkan ke slot planner yang masih kosong.",
-                            ),
-                          ),
-                        );
-                      },
-                child: const Text("Apply to Meal Planner"),
-              )
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildWeeklyDay(String day, String menu, String price) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0),
-      child: Row(
-        children: [
-          Container(
-            width: 40,
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-                color: Colors.white, borderRadius: BorderRadius.circular(10)),
-            child: Text(day,
-                style:
-                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 12)),
-          ),
-          const SizedBox(width: 15),
-          Expanded(
-              child: Text(menu,
-                  style: const TextStyle(fontWeight: FontWeight.w500))),
-          Flexible(
-            child: Text(price,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.end,
-                style: const TextStyle(color: Colors.grey, fontSize: 12)),
-          ),
-        ],
-      ),
-    );
-  }
-
-  String _mealTimeLabel(String mealTime) {
-    final lower = mealTime.toLowerCase();
-    if (lower.contains('breakfast') || lower.contains('pagi')) {
-      return 'Pagi';
-    }
-    if (lower.contains('dinner') ||
-        lower.contains('malam') ||
-        lower.contains('sore')) {
-      return 'Sore';
-    }
-    return 'Siang';
   }
 
   void _showRecipe(Meal meal) {

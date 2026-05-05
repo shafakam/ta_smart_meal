@@ -29,6 +29,16 @@ class AIService {
     required double targetCalories,
     required String dietType,
   }) async {
+    if (kDebugMode) {
+      debugPrint(
+          'Mode debug: pakai rekomendasi lokal agar tidak pause on exception.');
+      return _getLocalRecommendations(
+        budget: budget,
+        targetCalories: targetCalories,
+        dietType: dietType,
+      );
+    }
+
     final prompt = _buildPrompt(
       budget: budget,
       targetCalories: targetCalories,
@@ -60,7 +70,7 @@ class AIService {
     required String dietType,
   }) {
     return '''
-Buat 6 rekomendasi menu sehat untuk aplikasi Smart Meal.
+Buat 3 rekomendasi menu sehat untuk aplikasi Smart Meal.
 Kriteria:
 - Budget maksimal Rp ${budget.toInt()} per menu
 - Target kalori sekitar ${targetCalories.toInt()} kcal
@@ -363,9 +373,9 @@ Gunakan imageUrl kosong string jika tidak punya gambar.
       if (dietType == 'Balanced') return true;
       return item.dietType.toLowerCase() == dietType.toLowerCase();
     }).toList();
-    final source = preferred.length >= 6 ? preferred : templates;
+    final source = preferred.length >= 3 ? preferred : templates;
 
-    return source.take(6).map((item) {
+    return source.take(3).map((item) {
       final price =
           item.basePrice > budget && budget >= 15000 ? budget : item.basePrice;
       final calories = ((item.baseCalories + targetCalories) / 2).round();

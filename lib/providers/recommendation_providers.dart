@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import '../models/meal.dart';
 import '../services/ai_service.dart';
-import '../services/meal_storage_service.dart';
 
 class RecommendationProvider with ChangeNotifier {
   final AIService _aiService = AIService();
-  final MealStorageService _mealStorage = MealStorageService();
   List<Meal> _recommendedMeals = [];
   List<Meal> _weeklyPlan = [];
   bool _isLoading = false;
@@ -51,20 +49,9 @@ class RecommendationProvider with ChangeNotifier {
       if (byTime['Breakfast'] != null) byTime['Breakfast']!,
       if (byTime['Lunch'] != null) byTime['Lunch']!,
       if (byTime['Dinner'] != null) byTime['Dinner']!,
-      ..._recommendedMeals.where((meal) => !byTime.containsValue(meal)).take(4),
-    ].take(7).toList();
+      ..._recommendedMeals.where((meal) => !byTime.containsValue(meal)).take(2),
+    ].take(3).toList();
     notifyListeners();
-  }
-
-  Future<void> saveMeal(Meal meal) async {
-    await _mealStorage.saveMeal(meal);
-  }
-
-  Future<int> applyWeeklyPlan() async {
-    for (final meal in _weeklyPlan) {
-      await _mealStorage.saveMeal(meal);
-    }
-    return _mealStorage.applyMealsToFirstEmptySlots(_weeklyPlan);
   }
 
   String _normalizeMealTime(String value) {
