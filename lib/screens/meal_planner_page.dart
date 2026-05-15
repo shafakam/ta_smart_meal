@@ -372,6 +372,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
                   onPressed: () => _showSearch(dayIdx, type),
                   child: const Text("+ Tambah", style: TextStyle(fontSize: 12)))
               : Container(
+                  constraints: const BoxConstraints(minHeight: 56),
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                       color: Colors.blue.withValues(alpha: 0.05),
@@ -380,10 +381,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
                     borderRadius: BorderRadius.circular(10),
                     onTap: () => _showPlannerRecipe(meal),
                     child: Row(children: [
-                      ClipRRect(
-                          borderRadius: BorderRadius.circular(5),
-                          child: Image.network(meal['image_url'],
-                              width: 35, height: 35, fit: BoxFit.cover)),
+                      _buildMealThumbnail(meal['image_url']?.toString() ?? ''),
                       const SizedBox(width: 10),
                       Expanded(
                           child: Column(
@@ -417,6 +415,35 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
                   ),
                 )),
     ]);
+  }
+
+  Widget _buildMealThumbnail(String imageUrl) {
+    final safeUrl = imageUrl.trim().isEmpty || imageUrl.contains('example.com')
+        ? ''
+        : imageUrl.trim();
+    final fallback = Container(
+      width: 38,
+      height: 38,
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child:
+          Icon(Icons.restaurant_menu, size: 20, color: Colors.green.shade700),
+    );
+
+    if (safeUrl.isEmpty) return fallback;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Image.network(
+        safeUrl,
+        width: 38,
+        height: 38,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback,
+      ),
+    );
   }
 
   void _showPlannerRecipe(Map<String, dynamic> meal) {

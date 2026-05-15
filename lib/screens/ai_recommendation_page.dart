@@ -121,6 +121,9 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
                   else
                     ...recProv.recommendedMeals
                         .map((meal) => _buildMealCard(meal)),
+
+                  const SizedBox(height: 30),
+                  _buildSmartDailyPlan(recProv),
                 ],
               ),
             ),
@@ -343,19 +346,157 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
           const SizedBox(height: 10),
           SizedBox(
             width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () => _showRecipe(meal),
-              icon: const Icon(Icons.menu_book_outlined),
-              label: const Text(
-                "Lihat Resep",
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showRecipe(meal),
+                    icon: const Icon(Icons.menu_book_outlined),
+                    label: const Text(
+                      "Lihat Resep",
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton.icon(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFEC4899),
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: () async {
+                      await context
+                          .read<RecommendationProvider>()
+                          .saveMeal(meal);
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                            content:
+                                Text("${meal.name} disimpan ke daftar menu.")),
+                      );
+                    },
+                    icon: const Icon(Icons.playlist_add),
+                    label: const Text("Simpan"),
+                  ),
+                ),
+              ],
             ),
           )
         ],
       ),
     );
+  }
+
+  Widget _buildSmartDailyPlan(RecommendationProvider prov) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Row(
+          children: [
+            Icon(Icons.calendar_month, color: Color(0xFF8B5CF6)),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text("Smart Daily Plan",
+                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        ),
+        const SizedBox(height: 15),
+        Container(
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: Colors.purple.shade50,
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: Column(
+            children: [
+              if (prov.weeklyPlan.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Text(
+                      "Generate dulu supaya AI bisa susun menu pagi, siang, dan sore."),
+                )
+              else
+                ...prov.weeklyPlan.map((meal) => _buildDailyMealRow(meal)),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: prov.weeklyPlan.isEmpty
+                      ? null
+                      : () async {
+                          final added = await prov.applyDailyPlan();
+                          if (!mounted) return;
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                added == 0
+                                    ? "Tidak ada hari kosong untuk paket 1 hari ini."
+                                    : "Paket 1 hari berhasil ditambahkan ke Planner.",
+                              ),
+                            ),
+                          );
+                        },
+                  child: const Text("Apply 1 Hari ke Planner"),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildDailyMealRow(Meal meal) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          Container(
+            width: 58,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              _mealTimeLabel(meal.mealTime),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              meal.name,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            _formatMoney(meal.price),
+            style: const TextStyle(color: Colors.grey, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _mealTimeLabel(String mealTime) {
+    final lower = mealTime.toLowerCase();
+    if (lower.contains('breakfast') || lower.contains('pagi')) return 'Pagi';
+    if (lower.contains('dinner') ||
+        lower.contains('malam') ||
+        lower.contains('sore')) {
+      return 'Sore';
+    }
+    return 'Siang';
   }
 
   void _showRecipe(Meal meal) {

@@ -31,7 +31,7 @@ class Meal {
           DateTime.now().microsecondsSinceEpoch.toString(),
       name: json['name']?.toString() ?? '',
       description: json['description']?.toString() ?? '',
-      price: _number(json['price']).toDouble(),
+      price: _price(json['price']),
       calories: _number(json['calories']).toInt(),
       dietType: json['dietType']?.toString() ?? '',
       imageUrl: _imageUrl(json['imageUrl']),
@@ -65,6 +65,13 @@ class Meal {
           .where((item) => item.trim().isNotEmpty)
           .toList();
     }
+    if (value is String && value.trim().isNotEmpty) {
+      return value
+          .split(RegExp(r'[.;\n]'))
+          .map((item) => item.trim())
+          .where((item) => item.isNotEmpty)
+          .toList();
+    }
     return [];
   }
 
@@ -75,8 +82,15 @@ class Meal {
     return fallback;
   }
 
+  static double _price(dynamic value) {
+    final parsed = _number(value).toDouble();
+    if (parsed > 0 && parsed < 1000) return parsed * 1000;
+    return parsed;
+  }
+
   static String _imageUrl(dynamic value) {
     final url = value?.toString().trim() ?? '';
-    return url.isEmpty ? 'https://via.placeholder.com/150' : url;
+    if (url.isEmpty || url.contains('example.com')) return '';
+    return url;
   }
 }
