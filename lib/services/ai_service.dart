@@ -1,8 +1,11 @@
 import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
 import '../models/meal.dart';
+import '../models/nutrition_chat_message.dart';
+import '../models/nutrition_profile.dart';
 
 class AIService {
   String get _provider => dotenv.get('AI_PROVIDER', fallback: 'gemini');
@@ -25,24 +28,14 @@ class AIService {
       fallback: 'liquid/lfm-2.5-1.2b-instruct:free');
 
   Future<List<Meal>> getSmartRecommendations({
-    required double budget,
-    required double targetCalories,
-    required String dietType,
+    required NutritionProfile profile,
+    String contextSummary = '',
+    List<Meal> avoidMeals = const [],
   }) async {
-    if (kDebugMode) {
-      debugPrint(
-          'Mode debug: pakai rekomendasi lokal agar tidak pause on exception.');
-      return _getLocalRecommendations(
-        budget: budget,
-        targetCalories: targetCalories,
-        dietType: dietType,
-      );
-    }
-
     final prompt = _buildPrompt(
-      budget: budget,
-      targetCalories: targetCalories,
-      dietType: dietType,
+      profile: profile,
+      contextSummary: contextSummary,
+      avoidMeals: avoidMeals,
     );
 
     final provider = _provider.toLowerCase();
@@ -53,38 +46,80 @@ class AIService {
 
     for (final attempt in attempts) {
       final meals = await attempt(prompt);
-      if (meals != null && meals.isNotEmpty) return meals;
+      if (meals != null && meals.isNotEmpty) {
+        return _postProcessMeals(meals, profile).take(3).toList();
+      }
     }
 
     debugPrint('AI fallback lokal dipakai karena provider AI gagal.');
     return _getLocalRecommendations(
-      budget: budget,
-      targetCalories: targetCalories,
-      dietType: dietType,
+      profile: profile,
     );
   }
 
   String _buildPrompt({
-    required double budget,
-    required double targetCalories,
-    required String dietType,
+    required NutritionProfile profile,
+    required String contextSummary,
+    required List<Meal> avoidMeals,
   }) {
+    final avoidNames = avoidMeals
+        .map((meal) => meal.name)
+        .where((name) => name.trim().isNotEmpty)
+        .take(12)
+        .join(', ');
+    final variationSeed =
+        '${DateTime.now().millisecondsSinceEpoch}-${Random().nextInt(999999)}';
     return '''
-Buat 3 rekomendasi menu sehat untuk aplikasi Smart Meal.
+Buat tepat 3 rekomendasi menu sehat untuk 1 hari di aplikasi SmartBite.
 Kriteria:
-- Budget maksimal Rp ${budget.toInt()} per menu
-- Target kalori sekitar ${targetCalories.toInt()} kcal
-- Tipe diet: $dietType
+- Budget maksimal Rp ${profile.budget.toInt()} per menu
+- Target kalori sekitar ${profile.targetCalories.toInt()} kcal
+- Tipe diet: ${profile.dietType}
+- Activity level: ${profile.activityLevel}
+- Goal: ${profile.goalType}
+- Eating preference: ${profile.eatingPreference}
+- Current weight: ${profile.currentWeight} kg
+- Target weight: ${profile.targetWeight} kg
+- Daily water intake: ${profile.dailyWaterIntake} liter
+- Sleep duration: ${profile.sleepDuration} jam
+- Ringkasan pola user: $contextSummary
+- Hindari nama menu ini agar hasil tidak berulang: ${avoidNames.isEmpty ? 'tidak ada' : avoidNames}
 - Konteks Indonesia, bahan mudah dicari di pasar/supermarket
-- Buat menu yang berbeda setiap kali preferensi berubah. Jangan mengulang nama menu yang sama.
-- Variasi seed: ${DateTime.now().millisecondsSinceEpoch}
+- Buat menu Indonesia yang spesifik, natural, dan berbeda setiap generate.
+- Jangan gunakan nama generik seperti "nasi ayam sehat" berulang-ulang.
+- Variasi seed: $variationSeed
 
 Balas hanya JSON array valid tanpa markdown. Setiap item wajib punya:
-id, name, description, price, calories, dietType, imageUrl, matchPercentage, ingredients, steps, mealTime.
+id, name, description, price, calories, dietType, imageUrl, matchPercentage, ingredients, steps, mealTime, reason.
 mealTime hanya salah satu dari: Breakfast, Lunch, Dinner.
 ingredients dan steps harus array string singkat.
+description wajib memuat alasan personal singkat kenapa menu cocok untuk goal user.
 Gunakan imageUrl kosong string jika tidak punya gambar.
 ''';
+  }
+
+  Future<String> askNutritionAssistant({
+    required NutritionProfile profile,
+    required List<Meal> meals,
+    required List<NutritionChatMessage> history,
+    required String question,
+    required String insightSummary,
+  }) async {
+    final context = '''
+Profil user: ${jsonEncode(profile.toJson())}
+Insight: $insightSummary
+Riwayat/menu tersimpan: ${meals.map((meal) => '${meal.name} (${meal.calories} kcal, Rp${meal.price.round()}, ${meal.mealTime})').join('; ')}
+Pertanyaan user: $question
+
+Jawab dalam Bahasa Indonesia, singkat, friendly, actionable. Jangan diagnosis medis.
+''';
+
+    final provider = _provider.toLowerCase();
+    final answer = provider == 'openrouter'
+        ? await _chatOpenRouter(context, history)
+        : await _chatGemini(context, history);
+    return answer ??
+        _localChatAnswer(question: question, insightSummary: insightSummary);
   }
 
   Future<List<Meal>?> _getGeminiRecommendations(String prompt) async {
@@ -111,7 +146,9 @@ Gunakan imageUrl kosong string jika tidak punya gambar.
                 }
               ],
               'generationConfig': {
-                'temperature': 0.7,
+                'temperature': 0.95,
+                'topP': 0.92,
+                'topK': 40,
                 'responseMimeType': 'application/json',
               }
             }),
@@ -202,6 +239,94 @@ Gunakan imageUrl kosong string jika tidak punya gambar.
     }
   }
 
+  Future<String?> _chatGemini(
+    String prompt,
+    List<NutritionChatMessage> history,
+  ) async {
+    if (_geminiApiKey.isEmpty) return null;
+    final url = Uri.parse(
+      'https://generativelanguage.googleapis.com/v1beta/models/$_geminiModel:generateContent?key=$_geminiApiKey',
+    );
+    try {
+      final response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({
+              'contents': [
+                ...history.take(8).map((message) => {
+                      'role': message.role == 'user' ? 'user' : 'model',
+                      'parts': [
+                        {'text': message.text}
+                      ]
+                    }),
+                {
+                  'role': 'user',
+                  'parts': [
+                    {'text': prompt}
+                  ]
+                }
+              ],
+            }),
+          )
+          .timeout(const Duration(seconds: 25));
+      if (response.statusCode != 200) {
+        debugPrint(
+            'Gemini chat error ${response.statusCode}: ${response.body}');
+        return null;
+      }
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      return data['candidates']?[0]?['content']?['parts']?[0]?['text']
+          ?.toString();
+    } catch (e) {
+      debugPrint('Gemini chat failed: $e');
+      return null;
+    }
+  }
+
+  Future<String?> _chatOpenRouter(
+    String prompt,
+    List<NutritionChatMessage> history,
+  ) async {
+    if (_openRouterApiKey.isEmpty) return null;
+    try {
+      final response = await http
+          .post(
+            Uri.parse('https://openrouter.ai/api/v1/chat/completions'),
+            headers: {
+              'Authorization': 'Bearer $_openRouterApiKey',
+              'Content-Type': 'application/json',
+              'HTTP-Referer': 'https://smartbite.local',
+              'X-OpenRouter-Title': 'SmartBite',
+            },
+            body: jsonEncode({
+              'model': _openRouterModel,
+              'messages': [
+                {
+                  'role': 'system',
+                  'content':
+                      'Kamu AI Nutrition Assistant. Jawab singkat, suportif, dan tidak memberi diagnosis medis.',
+                },
+                ...history.take(8).map((message) => {
+                      'role': message.role,
+                      'content': message.text,
+                    }),
+                {'role': 'user', 'content': prompt},
+              ],
+              'temperature': 0.6,
+              'max_tokens': 600,
+            }),
+          )
+          .timeout(const Duration(seconds: 30));
+      if (response.statusCode != 200) return null;
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      return data['choices']?[0]?['message']?['content']?.toString();
+    } catch (e) {
+      debugPrint('OpenRouter chat failed: $e');
+      return null;
+    }
+  }
+
   String _readGeminiError(int statusCode, String body) {
     try {
       final data = jsonDecode(body) as Map<String, dynamic>;
@@ -250,9 +375,7 @@ Gunakan imageUrl kosong string jika tidak punya gambar.
   }
 
   List<Meal> _getLocalRecommendations({
-    required double budget,
-    required double targetCalories,
-    required String dietType,
+    required NutritionProfile profile,
   }) {
     const templates = [
       _MealTemplate(
@@ -370,15 +493,18 @@ Gunakan imageUrl kosong string jika tidak punya gambar.
     ];
 
     final preferred = templates.where((item) {
-      if (dietType == 'Balanced') return true;
-      return item.dietType.toLowerCase() == dietType.toLowerCase();
+      if (profile.dietType == 'Balanced') return true;
+      return item.dietType.toLowerCase() == profile.dietType.toLowerCase();
     }).toList();
-    final source = preferred.length >= 3 ? preferred : templates;
+    final source = [...(preferred.length >= 3 ? preferred : templates)];
+    source.shuffle(Random(DateTime.now().millisecondsSinceEpoch));
 
     return source.take(3).map((item) {
-      final price =
-          item.basePrice > budget && budget >= 15000 ? budget : item.basePrice;
-      final calories = ((item.baseCalories + targetCalories) / 2).round();
+      final price = item.basePrice > profile.budget && profile.budget >= 15000
+          ? profile.budget
+          : item.basePrice;
+      final calories =
+          ((item.baseCalories + profile.targetCalories) / 2).round();
 
       return Meal(
         id: 'local-${item.name.toLowerCase().replaceAll(' ', '-')}',
@@ -392,8 +518,59 @@ Gunakan imageUrl kosong string jika tidak punya gambar.
         ingredients: item.ingredients,
         steps: item.steps,
         mealTime: item.mealTime,
+        reason:
+            'Cocok untuk ${profile.goalType} karena porsinya mengikuti target kalori, budget, dan preferensi ${profile.eatingPreference}.',
       );
     }).toList();
+  }
+
+  List<Meal> _postProcessMeals(List<Meal> meals, NutritionProfile profile) {
+    final seen = <String>{};
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final processed = <Meal>[];
+
+    for (var i = 0; i < meals.length; i++) {
+      final meal = meals[i];
+      final key = meal.name.trim().toLowerCase();
+      if (key.isEmpty || seen.contains(key)) continue;
+      seen.add(key);
+      processed.add(
+        Meal(
+          id: '${meal.id.isEmpty ? key : meal.id}-$now-$i',
+          name: meal.name,
+          description: meal.description,
+          price: meal.price,
+          calories: meal.calories,
+          dietType: meal.dietType,
+          imageUrl: meal.imageUrl,
+          matchPercentage: meal.matchPercentage,
+          ingredients: meal.ingredients,
+          steps: meal.steps,
+          mealTime: meal.mealTime,
+          reason: meal.reason.isNotEmpty
+              ? meal.reason
+              : 'Direkomendasikan karena sesuai budget, target kalori, goal ${profile.goalType}, dan preferensi ${profile.eatingPreference}.',
+        ),
+      );
+    }
+    return processed;
+  }
+
+  String _localChatAnswer({
+    required String question,
+    required String insightSummary,
+  }) {
+    final lower = question.toLowerCase();
+    if (lower.contains('kalori')) {
+      return '$insightSummary Coba cek total kalori mingguan di kartu insight dan pertahankan porsi yang stabil.';
+    }
+    if (lower.contains('berat') || lower.contains('turun')) {
+      return 'Berat badan bisa stagnan karena surplus kecil, kurang tidur, atau aktivitas rendah. Mulai dari defisit ringan, protein cukup, dan tidur 7-8 jam.';
+    }
+    if (lower.contains('kurangi')) {
+      return 'Kurangi snack malam, minuman manis, dan makanan tinggi minyak. Ganti dengan protein lean, buah utuh, dan air putih.';
+    }
+    return 'Mulai dari target kecil: makan protein di tiap waktu makan, minum cukup air, dan jaga kalori mendekati target harian.';
   }
 }
 

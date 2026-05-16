@@ -10,6 +10,7 @@ class Meal {
   final List<String> ingredients;
   final List<String> steps;
   final String mealTime;
+  final String reason;
 
   Meal({
     required this.id,
@@ -23,6 +24,7 @@ class Meal {
     this.ingredients = const [],
     this.steps = const [],
     this.mealTime = '',
+    this.reason = '',
   });
 
   factory Meal.fromJson(Map<String, dynamic> json) {
@@ -39,6 +41,7 @@ class Meal {
       ingredients: _stringList(json['ingredients']),
       steps: _stringList(json['steps']),
       mealTime: json['mealTime']?.toString() ?? '',
+      reason: json['reason']?.toString() ?? '',
     );
   }
 
@@ -55,6 +58,7 @@ class Meal {
       'ingredients': ingredients,
       'steps': steps,
       'mealTime': mealTime,
+      'reason': reason,
     };
   }
 
@@ -77,8 +81,9 @@ class Meal {
 
   static num _number(dynamic value, {num fallback = 0}) {
     if (value is num) return value;
-    if (value is String)
+    if (value is String) {
       return num.tryParse(value.replaceAll(RegExp(r'[^0-9.]'), '')) ?? fallback;
+    }
     return fallback;
   }
 

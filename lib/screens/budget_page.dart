@@ -22,6 +22,7 @@ class _BudgetPageState extends State<BudgetPage> {
   String _currentCurrency = 'IDR';
   String _selectedTimeZone = 'WIB';
   double _exchangeRate = 1.0;
+  double? _previousExchangeRate;
 
   @override
   void initState() {
@@ -38,6 +39,7 @@ class _BudgetPageState extends State<BudgetPage> {
     await prefs.reload();
     final currency = prefs.getString('user_currency') ?? 'IDR';
     final timeZone = prefs.getString('user_timezone') ?? 'WIB';
+    final previousRate = prefs.getDouble('last_rate_$currency');
     var rate = 1.0;
 
     if (currency != 'IDR') {
@@ -64,16 +66,33 @@ class _BudgetPageState extends State<BudgetPage> {
       _currentCurrency = currency;
       _selectedTimeZone = timeZone;
       _exchangeRate = rate;
+      _previousExchangeRate = previousRate;
     });
+    await prefs.setDouble('last_rate_$currency', rate);
   }
 
   NumberFormat get _formatter => NumberFormat.currency(
         locale: _currentCurrency == 'IDR' ? 'id_ID' : 'en_US',
-        symbol: _currentCurrency == 'IDR'
-            ? 'Rp '
-            : (_currentCurrency == 'USD' ? '\$ ' : 'EUR '),
+        symbol: _currencySymbol(_currentCurrency),
         decimalDigits: _currentCurrency == 'IDR' ? 0 : 2,
       );
+
+  String _currencySymbol(String code) {
+    return switch (code) {
+      'IDR' => 'Rp ',
+      'USD' => '\$ ',
+      'EUR' => 'EUR ',
+      'GBP' => 'GBP ',
+      'JPY' => 'JPY ',
+      'CNY' => 'CNY ',
+      'AUD' => 'AUD ',
+      'CAD' => 'CAD ',
+      'CHF' => 'CHF ',
+      'SGD' => 'SGD ',
+      'INR' => 'INR ',
+      _ => '$code ',
+    };
+  }
 
   String _formatMoney(double amountIdr) {
     return _formatter.format(amountIdr * _exchangeRate);
@@ -133,6 +152,10 @@ class _BudgetPageState extends State<BudgetPage> {
                   const SizedBox(height: 15),
 
                   // GRID KATEGORI
+                  _buildCurrencyTrendCard(),
+                  const SizedBox(height: 10),
+                  _buildTimeZoneCard(),
+                  const SizedBox(height: 18),
                   _buildCategoryGrid(prov),
 
                   const SizedBox(height: 30),
@@ -172,6 +195,72 @@ class _BudgetPageState extends State<BudgetPage> {
   }
 
   // --- WIDGET HELPER ---
+
+  Widget _buildCurrencyTrendCard() {
+    final diff = _previousExchangeRate == null
+        ? 0.0
+        : _exchangeRate - _previousExchangeRate!;
+    final isUp = diff > 0;
+    final isDown = diff < 0;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isUp
+                ? Icons.trending_up
+                : isDown
+                    ? Icons.trending_down
+                    : Icons.trending_flat,
+            color: isUp
+                ? Colors.green
+                : isDown
+                    ? Colors.redAccent
+                    : Colors.grey,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              _currentCurrency == 'IDR'
+                  ? 'Mata uang IDR aktif. Kurs dasar tetap.'
+                  : 'Kurs $_currentCurrency sekarang ${_exchangeRate.toStringAsFixed(6)} ${isUp ? 'naik' : isDown ? 'turun' : 'stabil'} dari cek terakhir.',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTimeZoneCard() {
+    final nowText =
+        DateFormat('HH:mm, dd MMM yyyy').format(_nowForSelectedTimeZone());
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.access_time, color: Colors.blue),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'Jam $_selectedTimeZone sekarang $nowText. Tanggal belanja dan minggu planner mengikuti zona waktu ini.',
+              style: const TextStyle(fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   Widget _buildHeader(BudgetProvider prov) {
     return Container(

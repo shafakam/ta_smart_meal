@@ -1,6 +1,10 @@
 import 'dart:io';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
+import 'package:intl/intl.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'feedback_page.dart';
@@ -28,6 +32,22 @@ class _ProfilePageState extends State<ProfilePage> {
   // Variabel baru untuk Currency dan Time
   String _selectedCurrency = 'IDR';
   String _selectedTimeZone = 'WIB';
+  List<_CurrencyQuote> _currencyQuotes = [];
+  bool _isLoadingCurrencies = false;
+
+  static const List<_CurrencyOption> _currencyOptions = [
+    _CurrencyOption('IDR', 'Indonesian Rupiah'),
+    _CurrencyOption('USD', 'US Dollar'),
+    _CurrencyOption('EUR', 'Euro'),
+    _CurrencyOption('GBP', 'British Pound'),
+    _CurrencyOption('JPY', 'Japanese Yen'),
+    _CurrencyOption('CNY', 'Chinese Yuan'),
+    _CurrencyOption('AUD', 'Australian Dollar'),
+    _CurrencyOption('CAD', 'Canadian Dollar'),
+    _CurrencyOption('CHF', 'Swiss Franc'),
+    _CurrencyOption('SGD', 'Singapore Dollar'),
+    _CurrencyOption('INR', 'Indian Rupee'),
+  ];
 
   @override
   void initState() {
@@ -62,6 +82,222 @@ class _ProfilePageState extends State<ProfilePage> {
     await prefs.setString('user_timezone', newValue);
     setState(() => _selectedTimeZone = newValue);
     _showSnackBar("Zona waktu diubah ke $newValue");
+  }
+
+  DateTime _nowForSelectedTimeZone() {
+    final utc = DateTime.now().toUtc();
+    final offsetHours = switch (_selectedTimeZone) {
+      'WITA' => 8,
+      'WIT' => 9,
+      'London' => 1,
+      _ => 7,
+    };
+    return utc.add(Duration(hours: offsetHours));
+  }
+
+  Future<void> _openCurrencyPicker() async {
+    await _loadCurrencyQuotes();
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return DraggableScrollableSheet(
+              expand: false,
+              initialChildSize: 0.72,
+              minChildSize: 0.42,
+              maxChildSize: 0.92,
+              builder: (_, controller) {
+                return ListView(
+                  controller: controller,
+                  padding: const EdgeInsets.all(20),
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            'Pilih Mata Uang',
+                            style: TextStyle(
+                                fontSize: 20, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: () async {
+                            setModalState(() => _isLoadingCurrencies = true);
+                            await _loadCurrencyQuotes(forceRefresh: true);
+                            setModalState(() => _isLoadingCurrencies = false);
+                          },
+                          icon: const Icon(Icons.refresh),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    const Row(
+                      children: [
+                        Expanded(
+                            flex: 2,
+                            child: Text('Pair',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey))),
+                        Expanded(
+                            child: Text('Harga',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey))),
+                        Expanded(
+                            child: Text('Hari',
+                                style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.grey))),
+                      ],
+                    ),
+                    const Divider(),
+                    if (_isLoadingCurrencies)
+                      const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else
+                      ..._currencyQuotes.map(
+                        (quote) => ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          selected: quote.code == _selectedCurrency,
+                          leading: CircleAvatar(
+                            radius: 16,
+                            backgroundColor: quote.code == _selectedCurrency
+                                ? Colors.green.shade100
+                                : Colors.grey.shade100,
+                            child: Text(
+                              quote.code.substring(0, 1),
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                          title: Text(
+                            quote.code == 'IDR' ? 'IDR' : 'IDR${quote.code}',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          subtitle: Text(quote.name),
+                          trailing: SizedBox(
+                            width: 132,
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    quote.rateText,
+                                    textAlign: TextAlign.right,
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                SizedBox(
+                                  width: 54,
+                                  child: Row(
+                                    mainAxisAlignment: MainAxisAlignment.end,
+                                    children: [
+                                      Icon(
+                                        quote.diff > 0
+                                            ? Icons.arrow_drop_up
+                                            : quote.diff < 0
+                                                ? Icons.arrow_drop_down
+                                                : Icons.remove,
+                                        color: quote.diff > 0
+                                            ? Colors.green
+                                            : quote.diff < 0
+                                                ? Colors.red
+                                                : Colors.grey,
+                                      ),
+                                      Flexible(
+                                        child: Text(
+                                          quote.diffText,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: const TextStyle(fontSize: 11),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          onTap: () async {
+                            await _updateCurrency(quote.code);
+                            if (!context.mounted) return;
+                            Navigator.pop(context);
+                          },
+                        ),
+                      ),
+                  ],
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _loadCurrencyQuotes({bool forceRefresh = false}) async {
+    if (_currencyQuotes.isNotEmpty && !forceRefresh) return;
+    setState(() => _isLoadingCurrencies = true);
+    final prefs = await SharedPreferences.getInstance();
+    final apiKey = dotenv.get('CURRENCY_API_KEY', fallback: '');
+    final quotes = <_CurrencyQuote>[];
+
+    for (final option in _currencyOptions) {
+      var rate = option.code == 'IDR' ? 1.0 : 0.0;
+      final previous = prefs.getDouble('last_rate_${option.code}');
+      if (option.code != 'IDR' && apiKey.isNotEmpty) {
+        try {
+          final url = Uri.parse(
+              'https://v6.exchangerate-api.com/v6/$apiKey/pair/IDR/${option.code}');
+          final response =
+              await http.get(url).timeout(const Duration(seconds: 8));
+          if (response.statusCode == 200) {
+            final data = json.decode(response.body) as Map<String, dynamic>;
+            rate = (data['conversion_rate'] as num).toDouble();
+          }
+        } catch (_) {}
+      }
+      if (rate == 0.0) {
+        rate = _fallbackRate(option.code);
+      }
+      await prefs.setDouble('last_rate_${option.code}', rate);
+      quotes.add(_CurrencyQuote(
+        code: option.code,
+        name: option.name,
+        rate: rate,
+        previousRate: previous,
+      ));
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _currencyQuotes = quotes;
+      _isLoadingCurrencies = false;
+    });
+  }
+
+  double _fallbackRate(String code) {
+    return switch (code) {
+      'USD' => 0.000062,
+      'EUR' => 0.000057,
+      'GBP' => 0.000049,
+      'JPY' => 0.0096,
+      'CNY' => 0.00045,
+      'AUD' => 0.000095,
+      'CAD' => 0.000085,
+      'CHF' => 0.000055,
+      'SGD' => 0.000084,
+      'INR' => 0.0053,
+      _ => 1.0,
+    };
   }
 
   // --- FUNGSI BIOMETRIK & LOGOUT (TETAP SAMA) ---
@@ -101,8 +337,9 @@ class _ProfilePageState extends State<ProfilePage> {
 
   Future<void> _handleLogout() async {
     await _authService.logout();
-    if (mounted)
+    if (mounted) {
       Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+    }
   }
 
   void _showLogoutConfirmation() {
@@ -132,11 +369,12 @@ class _ProfilePageState extends State<ProfilePage> {
       final db = await _dbService.database;
       List<Map<String, dynamic>> result =
           await db.query('users', where: 'id = ?', whereArgs: [userId]);
-      if (result.isNotEmpty)
+      if (result.isNotEmpty) {
         setState(() {
           _userData = result.first;
           _isLoading = false;
         });
+      }
     }
   }
 
@@ -204,15 +442,10 @@ class _ProfilePageState extends State<ProfilePage> {
 
                     // --- SECTION 2: KONVERSI (FITUR BARU) ---
                     _buildSectionTitle("Konversi & Regional"),
+                    _buildCurrencyPickerTile(primaryBlue),
+                    _buildTimePreviewTile(primaryBlue),
                     _buildDropdownTile(
                       icon: Icons.monetization_on_outlined,
-                      title: "Mata Uang",
-                      value: _selectedCurrency,
-                      items: ['IDR', 'USD', 'EUR'],
-                      onChanged: _updateCurrency,
-                    ),
-                    _buildDropdownTile(
-                      icon: Icons.access_time_outlined,
                       title: "Zona Waktu",
                       value: _selectedTimeZone,
                       items: ['WIB', 'WITA', 'WIT', 'London'],
@@ -270,10 +503,10 @@ class _ProfilePageState extends State<ProfilePage> {
             right: 0,
             child: GestureDetector(
                 onTap: _pickImage,
-                child: CircleAvatar(
+                child: const CircleAvatar(
                     radius: 18,
                     backgroundColor: Colors.green,
-                    child: const Icon(Icons.camera_alt,
+                    child: Icon(Icons.camera_alt,
                         color: Colors.white, size: 18)))),
       ]),
       const SizedBox(height: 15),
@@ -293,7 +526,29 @@ class _ProfilePageState extends State<ProfilePage> {
       trailing: Switch(
           value: _isBiometricEnabled,
           onChanged: _toggleBiometric,
-          activeColor: Colors.blue.shade900),
+          activeThumbColor: Colors.blue.shade900),
+    );
+  }
+
+  Widget _buildCurrencyPickerTile(Color primaryBlue) {
+    return ListTile(
+      leading: _buildIconContainer(
+          Icons.monetization_on_outlined, Colors.green.shade50, Colors.green),
+      title: const Text("Mata Uang"),
+      subtitle: Text("Aktif: $_selectedCurrency"),
+      trailing: const Icon(Icons.chevron_right),
+      onTap: _openCurrencyPicker,
+    );
+  }
+
+  Widget _buildTimePreviewTile(Color primaryBlue) {
+    final nowText =
+        DateFormat('HH:mm, dd MMM yyyy').format(_nowForSelectedTimeZone());
+    return ListTile(
+      leading: _buildIconContainer(
+          Icons.access_time_outlined, Colors.blue.shade50, primaryBlue),
+      title: Text("Jam $_selectedTimeZone"),
+      subtitle: Text(nowText),
     );
   }
 
@@ -354,5 +609,41 @@ class _ProfilePageState extends State<ProfilePage> {
       icon: const Icon(Icons.logout),
       label: const Text("Keluar dari Akun"),
     );
+  }
+}
+
+class _CurrencyOption {
+  const _CurrencyOption(this.code, this.name);
+
+  final String code;
+  final String name;
+}
+
+class _CurrencyQuote {
+  const _CurrencyQuote({
+    required this.code,
+    required this.name,
+    required this.rate,
+    required this.previousRate,
+  });
+
+  final String code;
+  final String name;
+  final double rate;
+  final double? previousRate;
+
+  double get diff => previousRate == null ? 0 : rate - previousRate!;
+
+  String get rateText {
+    if (code == 'IDR') return '1.0000';
+    if (rate >= 1) return rate.toStringAsFixed(4);
+    return rate.toStringAsFixed(6);
+  }
+
+  String get diffText {
+    final value = diff.abs();
+    if (value == 0) return '0';
+    if (value >= 1) return value.toStringAsFixed(3);
+    return value.toStringAsFixed(6);
   }
 }

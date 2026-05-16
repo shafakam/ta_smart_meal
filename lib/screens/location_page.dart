@@ -8,7 +8,7 @@ class LocationPage extends StatefulWidget {
   const LocationPage({super.key});
 
   @override
-  _LocationPageState createState() => _LocationPageState();
+  State<LocationPage> createState() => _LocationPageState();
 }
 
 class _LocationPageState extends State<LocationPage> {
@@ -101,7 +101,7 @@ class _LocationPageState extends State<LocationPage> {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.blue.shade900.withOpacity(0.7),
+                  Colors.blue.shade900.withValues(alpha: 0.7),
                   Colors.transparent
                 ],
               ),
@@ -123,9 +123,9 @@ class _LocationPageState extends State<LocationPage> {
       height: 320,
       width: double.infinity,
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.95),
+        color: Colors.white.withValues(alpha: 0.95),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(30)),
-        boxShadow: [BoxShadow(color: Colors.black12, blurRadius: 10)],
+        boxShadow: const [BoxShadow(color: Colors.black12, blurRadius: 10)],
       ),
       padding: const EdgeInsets.all(20),
       child: Column(

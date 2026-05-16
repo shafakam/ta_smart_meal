@@ -561,7 +561,7 @@ class _SearchWidgetState extends State<_SearchWidget> {
   final List<Meal> _mealDbMeals = [];
   Meal? _randomMeal;
   bool _shakeMode = false;
-  bool _isFetchingRandomMeal = false;
+  bool _includeOnlineSearch = false;
   bool _isSearchingMealDb = false;
   String? _mealDbError;
   String? _randomMealError;
@@ -579,7 +579,7 @@ class _SearchWidgetState extends State<_SearchWidget> {
           DateTime.now().difference(_lastShakeAt) > const Duration(seconds: 1);
       if (_shakeMode && force > 28 && canShakeAgain) {
         _lastShakeAt = DateTime.now();
-        _fetchRandomMealDb();
+        _pickRandomSavedMeal();
       }
     });
   }
@@ -592,49 +592,30 @@ class _SearchWidgetState extends State<_SearchWidget> {
     super.dispose();
   }
 
-  Future<void> _fetchRandomMealDb() async {
-    if (_isFetchingRandomMeal) return;
+  void _pickRandomSavedMeal() {
+    if (widget.savedMeals.isEmpty) {
+      setState(() {
+        _randomMeal = null;
+        _randomMealError =
+            'Belum ada menu tersimpan. Simpan menu dari AI dulu.';
+      });
+      return;
+    }
+
+    final shuffled = [...widget.savedMeals]..shuffle();
     setState(() {
-      _isFetchingRandomMeal = true;
+      _randomMeal = shuffled.first;
       _randomMealError = null;
     });
-
-    try {
-      final url = Uri.https(
-        'www.themealdb.com',
-        '/api/json/v1/1/random.php',
-      );
-      final response = await http.get(url).timeout(const Duration(seconds: 10));
-      if (!mounted) return;
-      if (response.statusCode != 200) {
-        throw Exception('MealDB gagal memberi menu random');
-      }
-
-      final decoded = json.decode(response.body) as Map<String, dynamic>;
-      final mealsRaw = decoded['meals'] as List?;
-      if (mealsRaw == null || mealsRaw.isEmpty || mealsRaw.first is! Map) {
-        throw Exception('Menu random tidak ditemukan');
-      }
-
-      setState(() {
-        _randomMeal =
-            _mealFromMealDb(Map<String, dynamic>.from(mealsRaw.first as Map));
-        _isFetchingRandomMeal = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _isFetchingRandomMeal = false;
-        _randomMealError = e.toString().replaceFirst('Exception: ', '');
-      });
-    }
   }
 
   void _onSearchChanged(String value) {
     _searchDebounce?.cancel();
-    _searchDebounce = Timer(const Duration(milliseconds: 450), () {
-      _searchMealDb(value);
-    });
+    if (_includeOnlineSearch) {
+      _searchDebounce = Timer(const Duration(milliseconds: 450), () {
+        _searchMealDb(value);
+      });
+    }
     setState(() {});
   }
 
@@ -857,7 +838,10 @@ class _SearchWidgetState extends State<_SearchWidget> {
                 meal.dietType.toLowerCase().contains(query))
             .toList();
     final filteredMeals = <String, Meal>{};
-    for (final meal in [..._mealDbMeals, ...localMeals]) {
+    final combinedMeals = _includeOnlineSearch
+        ? [...localMeals, ..._mealDbMeals]
+        : [...localMeals];
+    for (final meal in combinedMeals) {
       filteredMeals[meal.id.isNotEmpty ? meal.id : meal.name.toLowerCase()] =
           meal;
     }
@@ -876,7 +860,8 @@ class _SearchWidgetState extends State<_SearchWidget> {
                 });
               },
               icon: const Icon(Icons.casino_outlined),
-              label: Text(_shakeMode ? "Shake HP Sekarang" : "Aktifkan Shake"),
+              label:
+                  Text(_shakeMode ? "Shake Menu Tersimpan" : "Aktifkan Shake"),
             ),
           ),
         ],
@@ -886,21 +871,11 @@ class _SearchWidgetState extends State<_SearchWidget> {
           padding: const EdgeInsets.only(top: 12),
           child: Column(
             children: [
-              Text(
-                _isFetchingRandomMeal
-                    ? "Mengambil menu random dari MealDB..."
-                    : "Gerakkan HP untuk memilih menu random dari MealDB.",
-                style: const TextStyle(color: Colors.grey),
+              const Text(
+                "Gerakkan HP untuk memilih random dari menu yang kamu simpan.",
+                style: TextStyle(color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
-              if (_isFetchingRandomMeal) ...[
-                const SizedBox(height: 8),
-                const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-              ],
               if (_randomMealError != null) ...[
                 const SizedBox(height: 8),
                 Text(
@@ -943,7 +918,7 @@ class _SearchWidgetState extends State<_SearchWidget> {
       TextField(
         controller: _ctrl,
         decoration: InputDecoration(
-            hintText: "Cari menu dari MealDB...",
+            hintText: "Cari dari menu tersimpan...",
             prefixIcon: const Icon(Icons.search),
             suffixIcon: _isSearchingMealDb
                 ? const Padding(
@@ -959,11 +934,39 @@ class _SearchWidgetState extends State<_SearchWidget> {
                 OutlineInputBorder(borderRadius: BorderRadius.circular(15))),
         onChanged: _onSearchChanged,
       ),
+      const SizedBox(height: 10),
+      Row(
+        children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: () {
+                setState(() {
+                  _includeOnlineSearch = !_includeOnlineSearch;
+                  _mealDbMeals.clear();
+                  _mealDbError = null;
+                });
+                if (_includeOnlineSearch && _ctrl.text.trim().isNotEmpty) {
+                  _searchMealDb(_ctrl.text);
+                }
+              },
+              icon: Icon(_includeOnlineSearch
+                  ? Icons.cloud_done_outlined
+                  : Icons.travel_explore_outlined),
+              label: Text(_includeOnlineSearch
+                  ? 'Pencarian online aktif'
+                  : 'Cari juga dari MealDB'),
+            ),
+          ),
+        ],
+      ),
       const SizedBox(height: 20),
       Expanded(
-        child: query.isEmpty
+        child: widget.savedMeals.isEmpty
             ? const Center(
-                child: Text("Ketik nama menu untuk mencari dari TheMealDB."),
+                child: Text(
+                  "Belum ada menu tersimpan. Simpan menu dari AI Nutrition Assistant dulu.",
+                  textAlign: TextAlign.center,
+                ),
               )
             : _isSearchingMealDb
                 ? const Center(child: CircularProgressIndicator())
@@ -971,7 +974,7 @@ class _SearchWidgetState extends State<_SearchWidget> {
                     ? Center(child: Text(_mealDbError!))
                     : searchResults.isEmpty
                         ? const Center(
-                            child: Text("Menu tidak ditemukan di MealDB"))
+                            child: Text("Menu tersimpan tidak ditemukan"))
                         : ListView.builder(
                             itemCount: searchResults.length,
                             itemBuilder: (context, i) {
