@@ -45,7 +45,15 @@ class MealStorageService {
 
     final decoded = jsonDecode(raw) as Map<String, dynamic>;
     return decoded.map((date, meals) {
-      return MapEntry(date, Map<String, dynamic>.from(meals as Map));
+      final dayMeals = Map<String, dynamic>.from(meals as Map);
+      for (final type in ['Breakfast', 'Lunch', 'Dinner']) {
+        final meal = dayMeals[type];
+        if (meal is Map) {
+          dayMeals[type] =
+              _normalizePlannerMeal(Map<String, dynamic>.from(meal));
+        }
+      }
+      return MapEntry(date, dayMeals);
     });
   }
 
@@ -91,17 +99,78 @@ class MealStorageService {
     return added;
   }
 
+  Future<int> applyDayPlanToFirstEmptyDay(List<Meal> meals,
+      {DateTime? weekStart}) async {
+    final dayPlan = <String, Meal>{};
+    final leftovers = <Meal>[];
+
+    for (final meal in meals) {
+      final type = _normalizeMealTime(meal.mealTime);
+      if (type.isNotEmpty && !dayPlan.containsKey(type)) {
+        dayPlan[type] = meal;
+      } else {
+        leftovers.add(meal);
+      }
+    }
+
+    for (final type in ['Breakfast', 'Lunch', 'Dinner']) {
+      if (!dayPlan.containsKey(type) && leftovers.isNotEmpty) {
+        dayPlan[type] = leftovers.removeAt(0);
+      }
+    }
+
+    if (dayPlan.isEmpty) return 0;
+
+    final store = await getPlannerStore();
+    final start = weekStart ?? _startOfCurrentWeek();
+
+    for (var day = 0; day < 7; day++) {
+      final dateKey =
+          DateFormat('yyyy-MM-dd').format(start.add(Duration(days: day)));
+      final dayMeals = store.putIfAbsent(
+          dateKey, () => {'Breakfast': null, 'Lunch': null, 'Dinner': null});
+      final canUseDay = dayPlan.keys.every((type) => dayMeals[type] == null);
+
+      if (!canUseDay) continue;
+
+      for (final entry in dayPlan.entries) {
+        dayMeals[entry.key] = mealToPlannerMap(entry.value);
+      }
+      await savePlannerStore(store);
+      return dayPlan.length;
+    }
+
+    return 0;
+  }
+
   Map<String, dynamic> mealToPlannerMap(Meal meal) {
     return {
       'id': meal.id,
       'nama': meal.name,
       'cal': meal.calories,
-      'harga': meal.price,
-      'image_url': meal.imageUrl,
+      'harga': _normalizePrice(meal.price),
+      'image_url': _safeImageUrl(meal.imageUrl),
       'description': meal.description,
       'ingredients': meal.ingredients,
       'steps': meal.steps,
     };
+  }
+
+  Map<String, dynamic> _normalizePlannerMeal(Map<String, dynamic> meal) {
+    meal['harga'] = _normalizePrice((meal['harga'] as num?)?.toDouble() ?? 0);
+    meal['image_url'] = _safeImageUrl(meal['image_url']?.toString() ?? '');
+    return meal;
+  }
+
+  double _normalizePrice(double price) {
+    if (price > 0 && price < 1000) return price * 1000;
+    return price;
+  }
+
+  String _safeImageUrl(String url) {
+    final trimmed = url.trim();
+    if (trimmed.isEmpty || trimmed.contains('example.com')) return '';
+    return trimmed;
   }
 
   DateTime _startOfCurrentWeek() {
@@ -113,12 +182,15 @@ class MealStorageService {
 
   String _normalizeMealTime(String value) {
     final lower = value.toLowerCase();
-    if (lower.contains('breakfast') || lower.contains('pagi'))
+    if (lower.contains('breakfast') || lower.contains('pagi')) {
       return 'Breakfast';
+    }
     if (lower.contains('lunch') || lower.contains('siang')) return 'Lunch';
     if (lower.contains('dinner') ||
         lower.contains('malam') ||
-        lower.contains('sore')) return 'Dinner';
+        lower.contains('sore')) {
+      return 'Dinner';
+    }
     return '';
   }
 }

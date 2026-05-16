@@ -72,6 +72,7 @@ flutter:
   # Pendaftaran Assets
   assets:
     - .env
+    - assets/images/smartbite_logo.png
   #  - assets/images/
   #  - assets/icons/
     # - assets/audio/ # Jika game butuh suara

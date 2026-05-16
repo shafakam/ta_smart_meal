@@ -1,12 +1,13 @@
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
-import 'package:intl/intl.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:http/http.dart' as http;
-import 'dart:convert';
-import '../providers/recommendation_providers.dart';
+import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
 import '../models/meal.dart';
+import '../models/nutrition_insight.dart';
+import '../models/nutrition_profile.dart';
+import '../providers/recommendation_providers.dart';
 
 class SaranMenuPage extends StatefulWidget {
   const SaranMenuPage({super.key});
@@ -19,10 +20,18 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
   double _budget = 50000;
   double _calories = 600;
   String _dietType = 'Balanced';
-  String _currentCurrency = 'IDR';
+  String _activityLevel = 'Lightly Active';
+  String _goalType = 'Maintain Weight';
+  String _eatingPreference = 'Balanced';
+  final _currentWeightCtrl = TextEditingController(text: '60');
+  final _targetWeightCtrl = TextEditingController(text: '58');
+  final _waterCtrl = TextEditingController(text: '2');
+  final _sleepCtrl = TextEditingController(text: '7');
+  final _chatCtrl = TextEditingController();
+  final String _currentCurrency = 'IDR';
   double _exchangeRate = 1.0;
 
-  NumberFormat get formatter => NumberFormat.currency(
+  NumberFormat get _formatter => NumberFormat.currency(
         locale: _currentCurrency == 'IDR' ? 'id_ID' : 'en_US',
         symbol: _currentCurrency == 'IDR'
             ? 'Rp '
@@ -34,93 +43,88 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
   void initState() {
     super.initState();
     _loadCurrency();
-  }
-
-  Future<void> _loadCurrency() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.reload();
-    final currency = prefs.getString('user_currency') ?? 'IDR';
-    var rate = 1.0;
-
-    if (currency != 'IDR') {
-      final apiKey = dotenv.get('CURRENCY_API_KEY', fallback: '');
-      if (apiKey.isNotEmpty) {
-        try {
-          final url = Uri.parse(
-              'https://v6.exchangerate-api.com/v6/$apiKey/pair/IDR/$currency');
-          final response =
-              await http.get(url).timeout(const Duration(seconds: 10));
-          if (response.statusCode == 200) {
-            final data = json.decode(response.body);
-            rate = (data['conversion_rate'] as num).toDouble();
-          }
-        } catch (e) {
-          debugPrint("Currency API Error: $e");
-          rate = currency == 'USD' ? 0.000062 : 0.000057;
-        }
-      }
-    }
-
-    if (!mounted) return;
-    setState(() {
-      _currentCurrency = currency;
-      _exchangeRate = rate;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<RecommendationProvider>().refreshInsight(_profile);
     });
   }
 
-  String _formatMoney(double amountIdr) {
-    return formatter.format(amountIdr * _exchangeRate);
+  @override
+  void dispose() {
+    _currentWeightCtrl.dispose();
+    _targetWeightCtrl.dispose();
+    _waterCtrl.dispose();
+    _sleepCtrl.dispose();
+    _chatCtrl.dispose();
+    super.dispose();
   }
+
+  NutritionProfile get _profile => NutritionProfile(
+        budget: _budget,
+        targetCalories: _calories,
+        dietType: _dietType,
+        activityLevel: _activityLevel,
+        goalType: _goalType,
+        eatingPreference: _eatingPreference,
+        currentWeight: double.tryParse(_currentWeightCtrl.text) ?? 60,
+        targetWeight: double.tryParse(_targetWeightCtrl.text) ?? 58,
+        dailyWaterIntake: double.tryParse(_waterCtrl.text) ?? 2,
+        sleepDuration: double.tryParse(_sleepCtrl.text) ?? 7,
+      );
+
+  Future<void> _loadCurrency() async {
+    final apiKey = dotenv.get('CURRENCY_API_KEY', fallback: '');
+    var rate = 1.0;
+    try {
+      if (_currentCurrency != 'IDR' && apiKey.isNotEmpty) {
+        final url = Uri.parse(
+            'https://v6.exchangerate-api.com/v6/$apiKey/pair/IDR/$_currentCurrency');
+        final response =
+            await http.get(url).timeout(const Duration(seconds: 8));
+        if (response.statusCode == 200) {
+          rate =
+              (json.decode(response.body)['conversion_rate'] as num).toDouble();
+        }
+      }
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() => _exchangeRate = rate);
+  }
+
+  String _money(double value) => _formatter.format(value * _exchangeRate);
 
   @override
   Widget build(BuildContext context) {
-    final recProv = context.watch<RecommendationProvider>();
-
+    final provider = context.watch<RecommendationProvider>();
     return Scaffold(
-      body: SingleChildScrollView(
-        child: Column(
+      backgroundColor: const Color(0xFFF6FBF8),
+      body: RefreshIndicator(
+        onRefresh: () => provider.refreshInsight(_profile),
+        child: ListView(
+          padding: EdgeInsets.zero,
           children: [
-            // HEADER PINK
             _buildHeader(),
-
             Padding(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(18),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // CARD PREFERENCES
-                  _buildPreferenceCard(recProv),
-
-                  const SizedBox(height: 30),
-                  const Text("Recommended for You",
-                      style:
-                          TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 15),
-
-                  // LIST MEAL RECOMMENDED
-                  if (recProv.isLoading)
-                    const Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: CircularProgressIndicator(),
-                      ),
-                    )
-                  else if (recProv.recommendedMeals.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 18),
-                      child: Text(
-                        recProv.errorMessage ??
-                            "Belum ada rekomendasi. Atur preferensi lalu generate menu.",
-                        style: TextStyle(
-                          color: recProv.errorMessage == null
-                              ? Colors.grey
-                              : Colors.redAccent,
-                        ),
-                      ),
-                    )
+                  _buildInputCard(provider),
+                  const SizedBox(height: 16),
+                  _buildInsightCard(provider.insight),
+                  const SizedBox(height: 16),
+                  _sectionTitle('Smart Recommendations'),
+                  const SizedBox(height: 10),
+                  if (provider.isLoading)
+                    const _SkeletonList()
+                  else if (provider.recommendedMeals.isEmpty)
+                    _emptyState(provider.errorMessage)
                   else
-                    ...recProv.recommendedMeals
-                        .map((meal) => _buildMealCard(meal)),
+                    ...provider.recommendedMeals.map(_buildMealCard),
+                  const SizedBox(height: 16),
+                  _buildDailyPlan(provider),
+                  const SizedBox(height: 16),
+                  _buildChatbot(provider),
+                  const SizedBox(height: 24),
                 ],
               ),
             ),
@@ -132,107 +136,107 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
 
   Widget _buildHeader() {
     return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.only(top: 60, bottom: 30, left: 20, right: 20),
+      padding: const EdgeInsets.fromLTRB(20, 58, 20, 28),
       decoration: const BoxDecoration(
-        gradient:
-            LinearGradient(colors: [Color(0xFFEC4899), Color(0xFF8B5CF6)]),
+        gradient: LinearGradient(
+          colors: [Color(0xFF00A878), Color(0xFF087CA7)],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
       ),
       child: const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.auto_awesome, color: Colors.white),
+              Icon(Icons.psychology_alt, color: Colors.white, size: 30),
               SizedBox(width: 10),
               Expanded(
-                child: Text("AI Recommendations",
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 24,
-                        fontWeight: FontWeight.bold)),
+                child: Text(
+                  'AI Nutrition Assistant',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 25,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
               ),
             ],
           ),
-          Text("Personalized meal suggestions based on your preferences",
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(color: Colors.white70)),
+          SizedBox(height: 8),
+          Text(
+            'Personalized recommendations powered by your eating habits and goals',
+            style: TextStyle(color: Colors.white70),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildPreferenceCard(RecommendationProvider prov) {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(25),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10)
-        ],
-      ),
+  Widget _buildInputCard(RecommendationProvider provider) {
+    return _Panel(
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Row(
+          _sectionTitle('Nutrition Profile'),
+          _slider('Budget per meal', _budget, 100000, true,
+              (value) => setState(() => _budget = value)),
+          _slider('Target calories', _calories, 1500, false,
+              (value) => setState(() => _calories = value)),
+          _dropdown(
+              'Diet type', _dietType, ['Balanced', 'Vegan', 'Keto', 'Low Carb'],
+              (value) {
+            setState(() => _dietType = value);
+          }),
+          _dropdown('Activity level', _activityLevel, [
+            'Sedentary',
+            'Lightly Active',
+            'Active',
+            'Very Active'
+          ], (value) {
+            setState(() => _activityLevel = value);
+          }),
+          _dropdown('Goal type', _goalType,
+              ['Weight Loss', 'Maintain Weight', 'Muscle Gain'], (value) {
+            setState(() => _goalType = value);
+          }),
+          _dropdown('Eating preference', _eatingPreference, [
+            'High Protein',
+            'Low Carb',
+            'Sugar Control',
+            'Balanced'
+          ], (value) {
+            setState(() => _eatingPreference = value);
+          }),
+          Row(
             children: [
-              Icon(Icons.bolt, color: Colors.orange),
-              SizedBox(width: 10),
-              Text("Your Preferences",
-                  style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+              Expanded(
+                child: _numberField('Current weight', _currentWeightCtrl, 'kg'),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _numberField('Target weight', _targetWeightCtrl, 'kg'),
+              ),
             ],
           ),
-          const SizedBox(height: 20),
-          _buildSlider("Budget per meal", _budget, 100000,
-              (v) => setState(() => _budget = v)),
-          _buildSlider("Target calories", _calories, 1500,
-              (v) => setState(() => _calories = v)),
-          DropdownButtonFormField<String>(
-            initialValue: _dietType,
-            items: ["Balanced", "Vegan", "Keto", "Low Carb"]
-                .map((e) => DropdownMenuItem(value: e, child: Text(e)))
-                .toList(),
-            onChanged: (v) => setState(() => _dietType = v!),
-            decoration: const InputDecoration(labelText: "Diet Type"),
+          Row(
+            children: [
+              Expanded(child: _numberField('Water intake', _waterCtrl, 'L')),
+              const SizedBox(width: 10),
+              Expanded(child: _numberField('Sleep', _sleepCtrl, 'hours')),
+            ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
-            child: ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.all(15),
-                backgroundColor: const Color(0xFF8B5CF6),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(15)),
-              ),
-              onPressed: () async {
-                // 1. Ambil akses ke Provider
-                final recProv = context.read<RecommendationProvider>();
-
-                // 2. Jalankan fungsi ambil rekomendasi (pastikan nama parameter sama dengan di Provider)
-                await recProv.fetchRecommendations(
-                  budget: _budget,
-                  targetCalories: _calories,
-                  dietType: _dietType,
-                );
-
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      recProv.recommendedMeals.isEmpty
-                          ? recProv.errorMessage ?? "AI belum memberi hasil."
-                          : "Rekomendasi menu sudah dibuat.",
-                    ),
-                  ),
-                );
-              },
-              child: const Text("Generate New Recommendations",
-                  style: TextStyle(
-                      color: Colors.white, fontWeight: FontWeight.bold)),
+            child: ElevatedButton.icon(
+              onPressed: provider.isLoading
+                  ? null
+                  : () => provider.fetchRecommendations(profile: _profile),
+              icon: const Icon(Icons.auto_awesome),
+              label: const Text('Generate AI Nutrition Plan'),
             ),
           ),
         ],
@@ -240,122 +244,391 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
     );
   }
 
-  Widget _buildSlider(
-      String label, double val, double max, Function(double) onChanged) {
-    return Column(
-      children: [
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(label, style: const TextStyle(color: Colors.grey)),
-            Text(
-                label.contains("Budget")
-                    ? _formatMoney(val)
-                    : "${val.toInt()} cal",
-                style: const TextStyle(fontWeight: FontWeight.bold)),
-          ],
-        ),
-        Slider(
-            value: val,
-            min: 0,
-            max: max,
-            activeColor: const Color(0xFF8B5CF6),
-            onChanged: onChanged),
-      ],
+  Widget _buildInsightCard(NutritionInsight? insight) {
+    if (insight == null) {
+      return const _Panel(
+        child: Text('Insight akan muncul setelah data profil dianalisis.'),
+      );
+    }
+    return _Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionTitle('AI Weekly Insight'),
+          const SizedBox(height: 10),
+          Text(insight.summary, style: const TextStyle(color: Colors.black87)),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: _metric(
+                    'Avg kcal', insight.averageCalories.round().toString()),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _metric(
+                  insight.calorieDelta >= 0 ? 'Surplus' : 'Defisit',
+                  '${insight.calorieDelta.abs().round()}',
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: _metric('Predict',
+                    '${insight.predictedWeightChange.toStringAsFixed(2)} kg'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _MiniBarChart(values: insight.dailyCalories),
+          const SizedBox(height: 14),
+          Text('Sering dikonsumsi: ${insight.mostFrequentFood}',
+              style: const TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          ...insight.habitWarnings
+              .map((item) => _chipLine(Icons.warning_amber, item)),
+          ...insight.recommendations
+              .map((item) => _chipLine(Icons.check_circle_outline, item)),
+        ],
+      ),
     );
   }
 
   Widget _buildMealCard(Meal meal) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 15),
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
+    return _Panel(
+      margin: const EdgeInsets.only(bottom: 12),
       child: Column(
         children: [
           Row(
             children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(15),
-                child: Image.network(
-                  meal.imageUrl,
-                  width: 80,
-                  height: 80,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, __, ___) => Container(
-                    width: 80,
-                    height: 80,
-                    color: Colors.green.shade50,
-                    child:
-                        const Icon(Icons.restaurant_menu, color: Colors.green),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 15),
+              _mealThumb(meal.imageUrl, 72),
+              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(meal.name,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  fontWeight: FontWeight.bold, fontSize: 16)),
-                        ),
-                      ],
-                    ),
+                    Text(meal.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.bold, fontSize: 16)),
+                    const SizedBox(height: 4),
                     Text(meal.description,
-                        style:
-                            const TextStyle(color: Colors.grey, fontSize: 12),
-                        maxLines: 2),
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.grey)),
                   ],
                 ),
-              )
+              ),
+              const SizedBox(width: 6),
+              Text('${meal.matchPercentage}%',
+                  style: const TextStyle(
+                      color: Colors.green, fontWeight: FontWeight.bold)),
             ],
           ),
           const SizedBox(height: 10),
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Flexible(
-                child: Text("${meal.calories} cal",
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(color: Colors.grey)),
+              Expanded(child: Text('${meal.calories} kcal')),
+              Text(_money(meal.price),
+                  style: const TextStyle(
+                      color: Colors.green, fontWeight: FontWeight.bold)),
+            ],
+          ),
+          if (meal.reason.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text('Alasan: ${meal.reason}',
+                  style: const TextStyle(color: Colors.black54, fontSize: 12)),
+            ),
+          ],
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: () => _showRecipe(meal),
+                  icon: const Icon(Icons.menu_book_outlined),
+                  label: const Text('Resep'),
+                ),
               ),
-              const SizedBox(width: 8),
-              Flexible(
-                child: Text(_formatMoney(meal.price),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    textAlign: TextAlign.end,
-                    style: const TextStyle(
-                        color: Colors.green, fontWeight: FontWeight.bold)),
+              const SizedBox(width: 10),
+              Expanded(
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    await context.read<RecommendationProvider>().saveMeal(meal);
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('${meal.name} disimpan.')),
+                    );
+                  },
+                  icon: const Icon(Icons.playlist_add),
+                  label: const Text('Simpan'),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          SizedBox(
-            width: double.infinity,
-            child: OutlinedButton.icon(
-              onPressed: () => _showRecipe(meal),
-              icon: const Icon(Icons.menu_book_outlined),
-              label: const Text(
-                "Lihat Resep",
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          )
         ],
       ),
     );
+  }
+
+  Widget _buildDailyPlan(RecommendationProvider provider) {
+    return _Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionTitle('Smart Daily Plan'),
+          const SizedBox(height: 10),
+          if (provider.weeklyPlan.isEmpty)
+            const Text('Generate dulu untuk membuat rencana pagi, siang, sore.')
+          else
+            ...provider.weeklyPlan.map(_dailyRow),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: provider.weeklyPlan.isEmpty
+                  ? null
+                  : () async {
+                      final added = await provider.applyDailyPlan();
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(added == 0
+                              ? 'Tidak ada hari kosong.'
+                              : 'Paket 1 hari masuk ke Planner.'),
+                        ),
+                      );
+                    },
+              child: const Text('Apply 1 Hari ke Planner'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChatbot(RecommendationProvider provider) {
+    return _Panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionTitle('Chatbot Nutrition Assistant'),
+          const SizedBox(height: 10),
+          if (provider.chatHistory.isEmpty)
+            const Text('Tanyakan: "Kenapa berat badanku belum turun?"',
+                style: TextStyle(color: Colors.grey)),
+          ...provider.chatHistory.map((message) => Align(
+                alignment: message.role == 'user'
+                    ? Alignment.centerRight
+                    : Alignment.centerLeft,
+                child: Container(
+                  margin: const EdgeInsets.symmetric(vertical: 5),
+                  padding: const EdgeInsets.all(12),
+                  constraints: const BoxConstraints(maxWidth: 280),
+                  decoration: BoxDecoration(
+                    color: message.role == 'user'
+                        ? Colors.green.shade100
+                        : Colors.grey.shade100,
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Text(message.text),
+                ),
+              )),
+          if (provider.isChatLoading)
+            const Padding(
+              padding: EdgeInsets.all(8),
+              child: LinearProgressIndicator(),
+            ),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _chatCtrl,
+                  minLines: 1,
+                  maxLines: 3,
+                  decoration: const InputDecoration(
+                    hintText: 'Tanya pola makanmu...',
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: provider.isChatLoading
+                    ? null
+                    : () {
+                        final text = _chatCtrl.text;
+                        _chatCtrl.clear();
+                        provider.askAssistant(
+                            profile: _profile, question: text);
+                      },
+                icon: const Icon(Icons.send),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _dailyRow(Meal meal) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 7),
+      child: Row(
+        children: [
+          Container(
+            width: 58,
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: Colors.green.shade50,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(_mealTimeLabel(meal.mealTime),
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(meal.name,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+          ),
+          Text(_money(meal.price),
+              style: const TextStyle(color: Colors.grey, fontSize: 12)),
+        ],
+      ),
+    );
+  }
+
+  Widget _slider(String label, double value, double max, bool money,
+      ValueChanged<double> onChanged) {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+                child: Text(label, style: const TextStyle(color: Colors.grey))),
+            Text(money ? _money(value) : '${value.round()} cal',
+                style: const TextStyle(fontWeight: FontWeight.bold)),
+          ],
+        ),
+        Slider(value: value, min: 0, max: max, onChanged: onChanged),
+      ],
+    );
+  }
+
+  Widget _dropdown(String label, String value, List<String> items,
+      ValueChanged<String> onChanged) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: DropdownButtonFormField<String>(
+        initialValue: value,
+        decoration: InputDecoration(labelText: label),
+        items: items
+            .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+            .toList(),
+        onChanged: (value) {
+          if (value != null) onChanged(value);
+        },
+      ),
+    );
+  }
+
+  Widget _numberField(
+      String label, TextEditingController controller, String suffix) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextField(
+        controller: controller,
+        keyboardType: TextInputType.number,
+        decoration: InputDecoration(labelText: label, suffixText: suffix),
+      ),
+    );
+  }
+
+  Widget _sectionTitle(String text) {
+    return Text(text,
+        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold));
+  }
+
+  Widget _metric(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          Text(value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+
+  Widget _chipLine(IconData icon, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 18, color: Colors.green),
+          const SizedBox(width: 8),
+          Expanded(child: Text(text)),
+        ],
+      ),
+    );
+  }
+
+  Widget _mealThumb(String url, double size) {
+    final safeUrl =
+        url.trim().isEmpty || url.contains('example.com') ? '' : url;
+    final fallback = Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: Colors.green.shade50,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Icon(Icons.restaurant_menu, color: Colors.green.shade700),
+    );
+    if (safeUrl.isEmpty) return fallback;
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: Image.network(
+        safeUrl,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => fallback,
+      ),
+    );
+  }
+
+  Widget _emptyState(String? error) {
+    return _Panel(
+      child: Text(
+        error ?? 'Belum ada rekomendasi. Isi profile lalu generate.',
+        style: TextStyle(color: error == null ? Colors.grey : Colors.redAccent),
+      ),
+    );
+  }
+
+  String _mealTimeLabel(String mealTime) {
+    final lower = mealTime.toLowerCase();
+    if (lower.contains('breakfast') || lower.contains('pagi')) return 'Pagi';
+    if (lower.contains('dinner') ||
+        lower.contains('malam') ||
+        lower.contains('sore')) {
+      return 'Sore';
+    }
+    return 'Siang';
   }
 
   void _showRecipe(Meal meal) {
@@ -364,55 +637,133 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(24))),
-      builder: (context) {
-        return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.72,
-          minChildSize: 0.45,
-          maxChildSize: 0.92,
-          builder: (_, controller) => ListView(
-            controller: controller,
-            padding: const EdgeInsets.all(22),
-            children: [
-              Text(meal.name,
-                  style: const TextStyle(
-                      fontSize: 22, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              Text(meal.description,
-                  style: const TextStyle(color: Colors.grey)),
-              const SizedBox(height: 18),
-              const Text("Bahan",
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              if (meal.ingredients.isEmpty)
-                const Text("Belum ada detail bahan dari AI.")
-              else
-                ...meal.ingredients.map((item) => ListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.check_circle_outline, size: 18),
-                      title: Text(item),
-                    )),
-              const SizedBox(height: 16),
-              const Text("Cara Masak",
-                  style: TextStyle(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              if (meal.steps.isEmpty)
-                const Text("Belum ada langkah resep dari AI.")
-              else
-                ...meal.steps.asMap().entries.map((entry) => ListTile(
-                      dense: true,
-                      contentPadding: EdgeInsets.zero,
-                      leading: CircleAvatar(
-                          radius: 12,
-                          child: Text("${entry.key + 1}",
-                              style: const TextStyle(fontSize: 11))),
-                      title: Text(entry.value),
-                    )),
-            ],
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.72,
+        builder: (_, controller) => ListView(
+          controller: controller,
+          padding: const EdgeInsets.all(22),
+          children: [
+            Text(meal.name,
+                style:
+                    const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 8),
+            Text(meal.description, style: const TextStyle(color: Colors.grey)),
+            const SizedBox(height: 18),
+            const Text('Bahan', style: TextStyle(fontWeight: FontWeight.bold)),
+            ...meal.ingredients.map((item) => ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.check_circle_outline, size: 18),
+                  title: Text(item),
+                )),
+            const SizedBox(height: 12),
+            const Text('Cara Masak',
+                style: TextStyle(fontWeight: FontWeight.bold)),
+            ...meal.steps.asMap().entries.map((entry) => ListTile(
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  leading: CircleAvatar(
+                    radius: 12,
+                    child: Text('${entry.key + 1}',
+                        style: const TextStyle(fontSize: 11)),
+                  ),
+                  title: Text(entry.value),
+                )),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _Panel extends StatelessWidget {
+  final Widget child;
+  final EdgeInsetsGeometry? margin;
+
+  const _Panel({required this.child, this.margin});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: margin,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.grey.shade200),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          )
+        ],
+      ),
+      child: child,
+    );
+  }
+}
+
+class _MiniBarChart extends StatelessWidget {
+  final List<int> values;
+  const _MiniBarChart({required this.values});
+
+  @override
+  Widget build(BuildContext context) {
+    final maxValue = values.isEmpty
+        ? 1
+        : values.reduce((a, b) => a > b ? a : b).clamp(1, 10000);
+    return SizedBox(
+      height: 90,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: values.asMap().entries.map((entry) {
+          final height = 20 + (entry.value / maxValue) * 60;
+          return Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 3),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Container(
+                    height: height,
+                    decoration: BoxDecoration(
+                      color: Colors.green.shade400,
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text('${entry.key + 1}',
+                      style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                ],
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+class _SkeletonList extends StatelessWidget {
+  const _SkeletonList();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: List.generate(
+        3,
+        (_) => Container(
+          height: 92,
+          margin: const EdgeInsets.only(bottom: 12),
+          decoration: BoxDecoration(
+            color: Colors.grey.shade100,
+            borderRadius: BorderRadius.circular(18),
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }

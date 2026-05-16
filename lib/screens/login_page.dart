@@ -144,10 +144,18 @@ class _LoginPageState extends State<LoginPage> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.restaurant_menu,
-                        size: 80, color: Colors.blue),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(22),
+                      child: Image.asset(
+                        'assets/images/smartbite_logo.png',
+                        width: 86,
+                        height: 86,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
                     const Text(
-                      "Smart Meal",
+                      "SmartBite",
                       style: TextStyle(
                           fontSize: 28,
                           fontWeight: FontWeight.bold,

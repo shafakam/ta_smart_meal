@@ -15,6 +15,7 @@ import 'screens/home_page.dart';
 import 'screens/account_setting_page.dart';
 import 'screens/register_page.dart';
 import 'screens/feedback_page.dart';
+import 'screens/splash_page.dart';
 
 Future<void> main() async {
   // 1. WAJIB: Pastikan binding mesin Flutter sudah siap sebelum akses plugin (Native)
@@ -60,7 +61,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      title: 'Smart Meal Planner',
+      title: 'SmartBite',
 
       // Tema Aplikasi
       theme: ThemeData(
@@ -75,8 +76,9 @@ class MyApp extends StatelessWidget {
 
       // Routing
       // Tip: Gunakan konstanta String untuk rute jika aplikasi semakin besar
-      initialRoute: '/login',
+      initialRoute: '/splash',
       routes: {
+        '/splash': (context) => const SplashPage(),
         '/login': (context) => const LoginPage(),
         '/register': (context) => const RegisterPage(),
         '/home': (context) => const HomePage(),

@@ -14,11 +14,11 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
   final _dbService = DatabaseService();
   final _authService = AuthService();
   final _encryptionService = EncryptionService(); // Instance service enkripsi
-  
+
   final _nameController = TextEditingController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController(); // Controller baru
-  
+
   bool _isLoading = false;
   bool _obscurePassword = true;
 
@@ -32,7 +32,8 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
     String? userId = await _authService.getUserId();
     if (userId != null) {
       final db = await _dbService.database;
-      var result = await db.query('users', where: 'id = ?', whereArgs: [userId]);
+      var result =
+          await db.query('users', where: 'id = ?', whereArgs: [userId]);
       if (result.isNotEmpty) {
         setState(() {
           _nameController.text = result.first['username'].toString();
@@ -56,7 +57,8 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
     // Jika password diisi, enkripsi lalu tambahkan ke data update
     if (_passwordController.text.isNotEmpty) {
       // Gunakan logic dari encryption_service kamu
-      String hashedPassword = _encryptionService.hashPassword(_passwordController.text.trim());
+      String hashedPassword =
+          _encryptionService.hashPassword(_passwordController.text.trim());
       updateData['password'] = hashedPassword;
     }
 
@@ -93,7 +95,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
         elevation: 0,
         centerTitle: true,
       ),
-      body: _isLoading 
+      body: _isLoading
           ? Center(child: CircularProgressIndicator(color: primaryBlue))
           : SingleChildScrollView(
               padding: const EdgeInsets.symmetric(horizontal: 25),
@@ -103,10 +105,12 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                   const SizedBox(height: 20),
                   Text(
                     "Informasi Akun",
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.grey.shade600),
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: Colors.grey.shade600),
                   ),
                   const SizedBox(height: 20),
-                  
                   _buildLabel("Username"),
                   _buildTextField(
                     controller: _nameController,
@@ -114,9 +118,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                     icon: Icons.person_outline,
                     primaryColor: primaryBlue,
                   ),
-                  
                   const SizedBox(height: 20),
-                  
                   _buildLabel("Email"),
                   _buildTextField(
                     controller: _emailController,
@@ -124,10 +126,9 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                     icon: Icons.email_outlined,
                     primaryColor: primaryBlue,
                   ),
-                  
                   const SizedBox(height: 20),
-                  
-                  _buildLabel("Password Baru (Kosongkan jika tidak ingin ganti)"),
+                  _buildLabel(
+                      "Password Baru (Kosongkan jika tidak ingin ganti)"),
                   _buildTextField(
                     controller: _passwordController,
                     hint: "Password baru",
@@ -139,9 +140,7 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                       setState(() => _obscurePassword = !_obscurePassword);
                     },
                   ),
-                  
                   const SizedBox(height: 40),
-                  
                   SizedBox(
                     width: double.infinity,
                     height: 55,
@@ -150,10 +149,13 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
                       style: ElevatedButton.styleFrom(
                         backgroundColor: primaryBlue,
                         foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(15)),
                         elevation: 0,
                       ),
-                      child: const Text("Simpan Perubahan", style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                      child: const Text("Simpan Perubahan",
+                          style: TextStyle(
+                              fontSize: 16, fontWeight: FontWeight.bold)),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -166,7 +168,8 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
   Widget _buildLabel(String label) {
     return Padding(
       padding: const EdgeInsets.only(left: 4, bottom: 8),
-      child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+      child: Text(label,
+          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
     );
   }
 
@@ -185,14 +188,16 @@ class _AccountSettingsPageState extends State<AccountSettingsPage> {
       decoration: InputDecoration(
         hintText: hint,
         prefixIcon: Icon(icon, color: primaryColor),
-        suffixIcon: isPassword 
+        suffixIcon: isPassword
             ? IconButton(
-                icon: Icon(obscureText ? Icons.visibility_off : Icons.visibility, color: Colors.grey),
+                icon: Icon(
+                    obscureText ? Icons.visibility_off : Icons.visibility,
+                    color: Colors.grey),
                 onPressed: onToggleVisible,
               )
             : null,
         filled: true,
-        fillColor: Colors.blue.shade50.withOpacity(0.4),
+        fillColor: Colors.blue.shade50.withValues(alpha: 0.4),
         contentPadding: const EdgeInsets.symmetric(vertical: 18),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(15),
