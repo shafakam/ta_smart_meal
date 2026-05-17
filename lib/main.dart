@@ -6,6 +6,7 @@ import 'package:smart_meal_ta/providers/recommendation_providers.dart';
 
 // Import Services
 import 'services/database_service.dart';
+import 'services/notification_service.dart';
 // Import Providers
 import 'providers/login_providers.dart';
 
@@ -34,6 +35,7 @@ Future<void> main() async {
   // Pastikan database siap sebelum UI dibangun
   final dbService = DatabaseService();
   await dbService.database;
+  await NotificationService.instance.initialize();
 
   // 4. Jalankan Aplikasi dengan MultiProvider
   runApp(

@@ -61,7 +61,9 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
     String timeZone = prefs.getString('user_timezone') ?? 'WIB';
     String apiKey = dotenv.get('CURRENCY_API_KEY', fallback: "");
 
-    double rate = 1.0;
+    double rate = currency == 'IDR'
+        ? 1.0
+        : prefs.getDouble('last_rate_$currency') ?? _fallbackRate(currency);
 
     // Fetch Kurs API jika mata uang bukan IDR
     if (currency != 'IDR' && apiKey.isNotEmpty) {
@@ -73,12 +75,12 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
 
         if (response.statusCode == 200) {
           final data = json.decode(response.body);
-          rate = (data['conversion_rate'] as num).toDouble();
+          rate = (data['conversion_rate'] as num?)?.toDouble() ?? rate;
         }
       } catch (e) {
         debugPrint("API Error: $e");
         // Fallback jika API gagal
-        rate = (currency == 'USD') ? 0.000062 : 0.000057;
+        rate = _fallbackRate(currency);
       }
     }
 
@@ -142,6 +144,49 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
       _ => 7,
     };
     return utc.add(Duration(hours: offsetHours));
+  }
+
+  double _fallbackRate(String code) {
+    return switch (code) {
+      'USD' => 0.000062,
+      'EUR' => 0.000057,
+      'GBP' => 0.000049,
+      'JPY' => 0.0096,
+      'CNY' => 0.00045,
+      'AUD' => 0.000095,
+      'CAD' => 0.000085,
+      'CHF' => 0.000055,
+      'SGD' => 0.000084,
+      'INR' => 0.0053,
+      _ => 1.0,
+    };
+  }
+
+  String _currencySymbol(String code) {
+    return switch (code) {
+      'IDR' => 'Rp ',
+      'USD' => '\$ ',
+      'EUR' => 'EUR ',
+      'GBP' => 'GBP ',
+      'JPY' => 'JPY ',
+      'CNY' => 'CNY ',
+      'AUD' => 'AUD ',
+      'CAD' => 'CAD ',
+      'CHF' => 'CHF ',
+      'SGD' => 'SGD ',
+      'INR' => 'INR ',
+      _ => '$code ',
+    };
+  }
+
+  NumberFormat get _currencyFormat => NumberFormat.currency(
+        locale: _currentCurrency == 'IDR' ? 'id_ID' : 'en_US',
+        symbol: _currencySymbol(_currentCurrency),
+        decimalDigits: _currentCurrency == 'IDR' ? 0 : 2,
+      );
+
+  String _formatMoney(double amountIdr) {
+    return _currencyFormat.format(amountIdr * _exchangeRate);
   }
 
   Future<void> _persistPlanner() async {
@@ -233,13 +278,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
   // --- UI ---
   @override
   Widget build(BuildContext context) {
-    final currencyFormat = NumberFormat.currency(
-      locale: _currentCurrency == 'IDR' ? 'id_ID' : 'en_US',
-      symbol: _currentCurrency == 'IDR'
-          ? 'Rp '
-          : (_currentCurrency == 'USD' ? '\$ ' : '€ '),
-      decimalDigits: _currentCurrency == 'IDR' ? 0 : 2,
-    );
+    final currencyFormat = _currencyFormat;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF5F7FA),
@@ -470,7 +509,7 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
                       fontSize: 22, fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
               Text(
-                "${meal['cal']} kcal - ${NumberFormat.currency(locale: 'id_ID', symbol: 'Rp ', decimalDigits: 0).format((meal['harga'] as num).toDouble())}",
+                "${meal['cal']} kcal - ${_formatMoney((meal['harga'] as num).toDouble())}",
                 style: const TextStyle(
                     color: Colors.green, fontWeight: FontWeight.w600),
               ),
@@ -539,6 +578,8 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
         child: _SearchWidget(
           savedMeals: _savedMealsLibrary,
           onSelectSavedMeal: (meal) => _addSavedMeal(dayIdx, type, meal),
+          currencyFormat: _currencyFormat,
+          exchangeRate: _exchangeRate,
         ),
       ),
     );
@@ -548,9 +589,13 @@ class _MealPlannerPageState extends State<MealPlannerPage> {
 class _SearchWidget extends StatefulWidget {
   final List<Meal> savedMeals;
   final Function(Meal) onSelectSavedMeal;
+  final NumberFormat currencyFormat;
+  final double exchangeRate;
   const _SearchWidget({
     required this.savedMeals,
     required this.onSelectSavedMeal,
+    required this.currencyFormat,
+    required this.exchangeRate,
   });
   @override
   State<_SearchWidget> createState() => _SearchWidgetState();
@@ -563,6 +608,7 @@ class _SearchWidgetState extends State<_SearchWidget> {
   bool _shakeMode = false;
   bool _includeOnlineSearch = false;
   bool _isSearchingMealDb = false;
+  bool _isPickingRandomMealDb = false;
   String? _mealDbError;
   String? _randomMealError;
   Timer? _searchDebounce;
@@ -579,7 +625,7 @@ class _SearchWidgetState extends State<_SearchWidget> {
           DateTime.now().difference(_lastShakeAt) > const Duration(seconds: 1);
       if (_shakeMode && force > 28 && canShakeAgain) {
         _lastShakeAt = DateTime.now();
-        _pickRandomSavedMeal();
+        _pickRandomMeal();
       }
     });
   }
@@ -592,12 +638,21 @@ class _SearchWidgetState extends State<_SearchWidget> {
     super.dispose();
   }
 
+  Future<void> _pickRandomMeal() async {
+    if (_includeOnlineSearch) {
+      await _pickRandomMealDb();
+      return;
+    }
+
+    _pickRandomSavedMeal();
+  }
+
   void _pickRandomSavedMeal() {
     if (widget.savedMeals.isEmpty) {
       setState(() {
         _randomMeal = null;
         _randomMealError =
-            'Belum ada menu tersimpan. Simpan menu dari AI dulu.';
+            'Belum ada menu tersimpan. Aktifkan MealDB untuk random online.';
       });
       return;
     }
@@ -607,6 +662,49 @@ class _SearchWidgetState extends State<_SearchWidget> {
       _randomMeal = shuffled.first;
       _randomMealError = null;
     });
+  }
+
+  Future<void> _pickRandomMealDb() async {
+    if (_isPickingRandomMealDb) return;
+
+    setState(() {
+      _isPickingRandomMealDb = true;
+      _randomMeal = null;
+      _randomMealError = null;
+    });
+
+    try {
+      final url = Uri.https(
+        'www.themealdb.com',
+        '/api/json/v1/1/random.php',
+      );
+      final response = await http.get(url).timeout(const Duration(seconds: 10));
+
+      if (!mounted) return;
+      if (response.statusCode != 200) {
+        throw Exception('MealDB gagal merespons');
+      }
+
+      final decoded = json.decode(response.body) as Map<String, dynamic>;
+      final mealsRaw = decoded['meals'] as List?;
+      final meals = mealsRaw?.whereType<Map>().toList() ?? [];
+      if (meals.isEmpty) {
+        throw Exception('MealDB tidak mengirim menu random.');
+      }
+
+      setState(() {
+        _randomMeal = _mealFromMealDb(Map<String, dynamic>.from(meals.first));
+        _randomMealError = null;
+        _isPickingRandomMealDb = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _randomMeal = null;
+        _randomMealError = e.toString().replaceFirst('Exception: ', '');
+        _isPickingRandomMealDb = false;
+      });
+    }
   }
 
   void _onSearchChanged(String value) {
@@ -823,11 +921,6 @@ class _SearchWidgetState extends State<_SearchWidget> {
 
   @override
   Widget build(BuildContext context) {
-    final rupiah = NumberFormat.currency(
-      locale: 'id_ID',
-      symbol: 'Rp ',
-      decimalDigits: 0,
-    );
     final query = _ctrl.text.trim().toLowerCase();
     final localMeals = query.isEmpty
         ? widget.savedMeals
@@ -860,8 +953,7 @@ class _SearchWidgetState extends State<_SearchWidget> {
                 });
               },
               icon: const Icon(Icons.casino_outlined),
-              label:
-                  Text(_shakeMode ? "Shake Menu Tersimpan" : "Aktifkan Shake"),
+              label: Text(_shakeMode ? "Shake Menu Random" : "Aktifkan Shake"),
             ),
           ),
         ],
@@ -871,11 +963,21 @@ class _SearchWidgetState extends State<_SearchWidget> {
           padding: const EdgeInsets.only(top: 12),
           child: Column(
             children: [
-              const Text(
-                "Gerakkan HP untuk memilih random dari menu yang kamu simpan.",
+              Text(
+                _includeOnlineSearch
+                    ? "Gerakkan HP untuk memilih random dari MealDB."
+                    : "Gerakkan HP untuk memilih random dari menu yang kamu simpan.",
                 style: TextStyle(color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
+              if (_isPickingRandomMealDb) ...[
+                const SizedBox(height: 10),
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              ],
               if (_randomMealError != null) ...[
                 const SizedBox(height: 8),
                 Text(
@@ -994,7 +1096,8 @@ class _SearchWidgetState extends State<_SearchWidget> {
                                 title: Text(meal.name,
                                     style: const TextStyle(fontSize: 14)),
                                 subtitle: Text(
-                                  "${meal.description} - ${meal.calories} kcal - ${rupiah.format(meal.price)}",
+                                  "${meal.description} - ${meal.calories} kcal - "
+                                  "${widget.currencyFormat.format(meal.price * widget.exchangeRate)}",
                                 ),
                                 onTap: () {
                                   widget.onSelectSavedMeal(meal);

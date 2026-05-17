@@ -445,7 +445,7 @@ class _ProfilePageState extends State<ProfilePage> {
                     _buildCurrencyPickerTile(primaryBlue),
                     _buildTimePreviewTile(primaryBlue),
                     _buildDropdownTile(
-                      icon: Icons.monetization_on_outlined,
+                      icon: Icons.access_time_outlined,
                       title: "Zona Waktu",
                       value: _selectedTimeZone,
                       items: ['WIB', 'WITA', 'WIT', 'London'],

@@ -2,12 +2,14 @@ import 'package:flutter/material.dart';
 import '../models/budget.dart';
 import '../models/expense.dart';
 import '../services/database_service.dart';
+import '../services/notification_service.dart';
 
 class BudgetProvider with ChangeNotifier {
   double _weeklyLimit = 0.0;
   double _spent = 0.0;
   List<Expense> _recentExpenses = [];
   bool _isLoading = false;
+  String? _errorMessage;
 
   double get weeklyLimit => _weeklyLimit;
   double get spent => _spent;
@@ -16,6 +18,7 @@ class BudgetProvider with ChangeNotifier {
       (_weeklyLimit > 0) ? (_spent / _weeklyLimit).clamp(0.0, 1.0) : 0.0;
   List<Expense> get recentExpenses => _recentExpenses;
   bool get isLoading => _isLoading;
+  String? get errorMessage => _errorMessage;
 
   // 1. FUNGSI LOAD DATA
   Future<void> loadData(int userId) async {
@@ -30,6 +33,11 @@ class BudgetProvider with ChangeNotifier {
         _spent = 0.0;
       }
       _recentExpenses = await DatabaseService().getExpensesByUserId(userId);
+      await NotificationService.instance.showBudgetWarning(
+        userId: userId,
+        weeklyLimit: _weeklyLimit,
+        spent: _spent,
+      );
     } catch (e) {
       debugPrint("Error Load: $e");
     } finally {
@@ -39,8 +47,13 @@ class BudgetProvider with ChangeNotifier {
   }
 
   // 2. FUNGSI TAMBAH
-  Future<void> addExpense(Expense exp, int userId, bool addToBudget) async {
+  Future<bool> addExpense(Expense exp, int userId, bool addToBudget) async {
     try {
+      _errorMessage = null;
+      if (addToBudget && !_canAddWeeklyExpense(exp.price)) {
+        _setBudgetLimitError();
+        return false;
+      }
       if (addToBudget) exp.isWeekly = 1;
       await DatabaseService().insertExpense(exp);
       if (addToBudget) {
@@ -50,16 +63,29 @@ class BudgetProvider with ChangeNotifier {
         await _updateDBBudget(userId);
       }
       await loadData(userId);
+      return true;
     } catch (e) {
       debugPrint("Error Add Expense: $e");
+      _errorMessage = 'Gagal menambahkan pengeluaran.';
+      notifyListeners();
+      return false;
     }
   }
 
   // 3. FUNGSI UPDATE / EDIT (INI YANG TADI HILANG)
-  Future<void> updateExpense(Expense exp, int userId) async {
+  Future<bool> updateExpense(Expense exp, int userId) async {
     try {
+      _errorMessage = null;
       // Ambil data lama sebelum diupdate untuk hitung selisih harga
       final oldExpense = _recentExpenses.firstWhere((e) => e.id == exp.id);
+
+      if (oldExpense.isWeekly == 1) {
+        final nextSpent = _spent - oldExpense.price + exp.price;
+        if (!_isWithinWeeklyLimit(nextSpent)) {
+          _setBudgetLimitError();
+          return false;
+        }
+      }
 
       await DatabaseService().updateExpense(exp);
 
@@ -76,8 +102,12 @@ class BudgetProvider with ChangeNotifier {
       }
 
       await loadData(userId);
+      return true;
     } catch (e) {
       debugPrint("Error Update Expense: $e");
+      _errorMessage = 'Gagal mengubah pengeluaran.';
+      notifyListeners();
+      return false;
     }
   }
 
@@ -103,12 +133,7 @@ class BudgetProvider with ChangeNotifier {
     try {
       _weeklyLimit = newLimit;
       notifyListeners();
-      await DatabaseService().insertBudget(Budget(
-          id: 1,
-          weeklyLimit: _weeklyLimit,
-          spent: _spent,
-          remaining: _weeklyLimit - _spent,
-          userId: userId));
+      await _updateDBBudget(userId);
       notifyListeners();
     } catch (e) {
       debugPrint("Error Update Limit: $e");
@@ -116,7 +141,12 @@ class BudgetProvider with ChangeNotifier {
   }
 
   // 6. FUNGSI PINDAH STATUS MINGGUAN
-  Future<void> addToWeeklyList(int expenseId, double price, int userId) async {
+  Future<bool> addToWeeklyList(int expenseId, double price, int userId) async {
+    _errorMessage = null;
+    if (!_canAddWeeklyExpense(price)) {
+      _setBudgetLimitError();
+      return false;
+    }
     await DatabaseService().updateExpenseStatus(expenseId, 1);
     _spent += price;
     final index =
@@ -125,6 +155,7 @@ class BudgetProvider with ChangeNotifier {
     notifyListeners();
     await _updateDBBudget(userId);
     await loadData(userId);
+    return true;
   }
 
   Future<void> removeFromWeeklyList(
@@ -147,6 +178,11 @@ class BudgetProvider with ChangeNotifier {
         spent: _spent,
         remaining: _weeklyLimit - _spent,
         userId: userId));
+    await NotificationService.instance.showBudgetWarning(
+      userId: userId,
+      weeklyLimit: _weeklyLimit,
+      spent: _spent,
+    );
   }
 
   // 8. HITUNG KATEGORI
@@ -154,5 +190,21 @@ class BudgetProvider with ChangeNotifier {
     return _recentExpenses
         .where((e) => e.category == category && e.isWeekly == 1)
         .fold(0.0, (sum, item) => sum + item.price);
+  }
+
+  bool _canAddWeeklyExpense(double price) {
+    return _weeklyLimit > 0 &&
+        remaining > 0 &&
+        _isWithinWeeklyLimit(_spent + price);
+  }
+
+  bool _isWithinWeeklyLimit(double value) {
+    return _weeklyLimit > 0 && value <= _weeklyLimit;
+  }
+
+  void _setBudgetLimitError() {
+    _errorMessage =
+        'Pengeluaran tidak bisa ditambahkan karena sisa budget sudah habis atau tidak cukup.';
+    notifyListeners();
   }
 }

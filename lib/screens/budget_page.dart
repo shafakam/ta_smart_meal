@@ -529,13 +529,17 @@ class _BudgetPageState extends State<BudgetPage> {
                             borderRadius: BorderRadius.circular(10)),
                         elevation: 0,
                       ),
-                      onPressed: () {
+                      onPressed: () async {
                         if (isWeekly) {
-                          prov.removeFromWeeklyList(
+                          await prov.removeFromWeeklyList(
                               item.id, item.price, widget.userId);
                         } else {
-                          prov.addToWeeklyList(
+                          final success = await prov.addToWeeklyList(
                               item.id, item.price, widget.userId);
+                          if (!context.mounted) return;
+                          if (!success) {
+                            _showBudgetError(context, prov);
+                          }
                         }
                       },
                       child: Text(
@@ -609,10 +613,13 @@ class _BudgetPageState extends State<BudgetPage> {
                     userId: userId,
                     isWeekly: 1,
                   );
-                  await context
-                      .read<BudgetProvider>()
-                      .addExpense(exp, userId, true);
+                  final provider = context.read<BudgetProvider>();
+                  final success = await provider.addExpense(exp, userId, true);
                   if (!context.mounted) return;
+                  if (!success) {
+                    _showBudgetError(context, provider);
+                    return;
+                  }
                   Navigator.pop(context);
                 },
                 child: const Text("Simpan"),
@@ -679,10 +686,14 @@ class _BudgetPageState extends State<BudgetPage> {
                     userId: userId,
                     isWeekly: item.isWeekly,
                   );
-                  await context
-                      .read<BudgetProvider>()
-                      .updateExpense(updatedExp, userId);
+                  final provider = context.read<BudgetProvider>();
+                  final success =
+                      await provider.updateExpense(updatedExp, userId);
                   if (!context.mounted) return;
+                  if (!success) {
+                    _showBudgetError(context, provider);
+                    return;
+                  }
                   Navigator.pop(context);
                 },
                 child: const Text("Simpan Perubahan"),
@@ -739,6 +750,15 @@ class _BudgetPageState extends State<BudgetPage> {
             )
           ],
         ),
+      ),
+    );
+  }
+
+  void _showBudgetError(BuildContext context, BudgetProvider provider) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(provider.errorMessage ?? 'Pengeluaran ditolak.'),
+        backgroundColor: Colors.redAccent,
       ),
     );
   }
