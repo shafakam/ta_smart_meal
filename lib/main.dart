@@ -17,6 +17,8 @@ import 'screens/account_setting_page.dart';
 import 'screens/register_page.dart';
 import 'screens/feedback_page.dart';
 import 'screens/splash_page.dart';
+import 'features/ai_nutrition/screens/ai_nutrition_screen.dart';
+import 'features/ai_nutrition/providers/ai_nutrition_provider.dart';
 
 Future<void> main() async {
   // 1. WAJIB: Pastikan binding mesin Flutter sudah siap sebelum akses plugin (Native)
@@ -36,6 +38,7 @@ Future<void> main() async {
   final dbService = DatabaseService();
   await dbService.database;
   await NotificationService.instance.initialize();
+  await NotificationService.instance.scheduleMealReminders();
 
   // 4. Jalankan Aplikasi dengan MultiProvider
   runApp(
@@ -45,6 +48,7 @@ Future<void> main() async {
         ChangeNotifierProvider(create: (_) => LoginProvider()),
         ChangeNotifierProvider(create: (_) => BudgetProvider()),
         ChangeNotifierProvider(create: (_) => RecommendationProvider()),
+        ChangeNotifierProvider(create: (_) => AiNutritionProvider()),
 
         /* 
            Si B bisa menambahkan provider di sini nanti, contoh:
@@ -84,6 +88,7 @@ class MyApp extends StatelessWidget {
         '/login': (context) => const LoginPage(),
         '/register': (context) => const RegisterPage(),
         '/home': (context) => const HomePage(),
+        '/ai_nutrition': (context) => const AiNutritionScreen(),
         '/account_settings': (context) => const AccountSettingsPage(),
         '/feedback': (context) => const FeedbackPage(),
       },

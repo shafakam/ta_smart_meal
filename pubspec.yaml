@@ -53,6 +53,7 @@ dependencies:
   # Format mata uang & waktu (WIB, London, dll)
   intl: ^0.19.0
   timezone: ^0.9.4
+  fl_chart: ^1.2.0
   # Untuk ambil foto profil di /screens/profile_page.dart
   image_picker: ^1.0.7
 

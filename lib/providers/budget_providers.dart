@@ -52,6 +52,11 @@ class BudgetProvider with ChangeNotifier {
       _errorMessage = null;
       if (addToBudget && !_canAddWeeklyExpense(exp.price)) {
         _setBudgetLimitError();
+        await NotificationService.instance.showExpenseRejected(
+          userId: userId,
+          price: exp.price,
+          remaining: remaining,
+        );
         return false;
       }
       if (addToBudget) exp.isWeekly = 1;
@@ -83,6 +88,11 @@ class BudgetProvider with ChangeNotifier {
         final nextSpent = _spent - oldExpense.price + exp.price;
         if (!_isWithinWeeklyLimit(nextSpent)) {
           _setBudgetLimitError();
+          await NotificationService.instance.showExpenseRejected(
+            userId: userId,
+            price: exp.price,
+            remaining: remaining + oldExpense.price,
+          );
           return false;
         }
       }
@@ -145,6 +155,11 @@ class BudgetProvider with ChangeNotifier {
     _errorMessage = null;
     if (!_canAddWeeklyExpense(price)) {
       _setBudgetLimitError();
+      await NotificationService.instance.showExpenseRejected(
+        userId: userId,
+        price: price,
+        remaining: remaining,
+      );
       return false;
     }
     await DatabaseService().updateExpenseStatus(expenseId, 1);

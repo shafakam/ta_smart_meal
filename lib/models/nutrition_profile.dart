@@ -37,4 +37,25 @@ class NutritionProfile {
       'sleepDuration': sleepDuration,
     };
   }
+
+  factory NutritionProfile.fromJson(Map<String, dynamic> json) {
+    double number(String key, double fallback) {
+      final value = json[key];
+      if (value is num) return value.toDouble();
+      return double.tryParse(value?.toString() ?? '') ?? fallback;
+    }
+
+    return NutritionProfile(
+      budget: number('budget', 50000),
+      targetCalories: number('targetCalories', 600),
+      dietType: json['dietType']?.toString() ?? 'Balanced',
+      activityLevel: json['activityLevel']?.toString() ?? 'Lightly Active',
+      goalType: json['goalType']?.toString() ?? 'Maintain Weight',
+      eatingPreference: json['eatingPreference']?.toString() ?? 'Balanced',
+      currentWeight: number('currentWeight', 60),
+      targetWeight: number('targetWeight', 58),
+      dailyWaterIntake: number('dailyWaterIntake', 2),
+      sleepDuration: number('sleepDuration', 7),
+    );
+  }
 }

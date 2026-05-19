@@ -44,7 +44,7 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
     super.initState();
     _loadCurrency();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<RecommendationProvider>().refreshInsight(_profile);
+      _restoreNutritionState();
     });
   }
 
@@ -91,6 +91,33 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
   }
 
   String _money(double value) => _formatter.format(value * _exchangeRate);
+
+  Future<void> _restoreNutritionState() async {
+    final provider = context.read<RecommendationProvider>();
+    final savedProfile = await provider.loadPersistedState();
+    if (!mounted) return;
+    if (savedProfile != null) {
+      setState(() {
+        _budget = savedProfile.budget;
+        _calories = savedProfile.targetCalories;
+        _dietType = savedProfile.dietType;
+        _activityLevel = savedProfile.activityLevel;
+        _goalType = savedProfile.goalType;
+        _eatingPreference = savedProfile.eatingPreference;
+        _currentWeightCtrl.text = _formatNumber(savedProfile.currentWeight);
+        _targetWeightCtrl.text = _formatNumber(savedProfile.targetWeight);
+        _waterCtrl.text = _formatNumber(savedProfile.dailyWaterIntake);
+        _sleepCtrl.text = _formatNumber(savedProfile.sleepDuration);
+      });
+    } else {
+      provider.refreshInsight(_profile);
+    }
+  }
+
+  String _formatNumber(double value) {
+    if (value == value.roundToDouble()) return value.round().toString();
+    return value.toStringAsFixed(1);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -182,13 +209,13 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
         children: [
           _sectionTitle('Nutrition Profile'),
           _slider('Budget per meal', _budget, 100000, true,
-              (value) => setState(() => _budget = value)),
+              (value) => _updateProfile(provider, () => _budget = value)),
           _slider('Target calories', _calories, 1500, false,
-              (value) => setState(() => _calories = value)),
+              (value) => _updateProfile(provider, () => _calories = value)),
           _dropdown(
               'Diet type', _dietType, ['Balanced', 'Vegan', 'Keto', 'Low Carb'],
               (value) {
-            setState(() => _dietType = value);
+            _updateProfile(provider, () => _dietType = value);
           }),
           _dropdown('Activity level', _activityLevel, [
             'Sedentary',
@@ -196,11 +223,11 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
             'Active',
             'Very Active'
           ], (value) {
-            setState(() => _activityLevel = value);
+            _updateProfile(provider, () => _activityLevel = value);
           }),
           _dropdown('Goal type', _goalType,
               ['Weight Loss', 'Maintain Weight', 'Muscle Gain'], (value) {
-            setState(() => _goalType = value);
+            _updateProfile(provider, () => _goalType = value);
           }),
           _dropdown('Eating preference', _eatingPreference, [
             'High Protein',
@@ -208,24 +235,29 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
             'Sugar Control',
             'Balanced'
           ], (value) {
-            setState(() => _eatingPreference = value);
+            _updateProfile(provider, () => _eatingPreference = value);
           }),
           Row(
             children: [
               Expanded(
-                child: _numberField('Current weight', _currentWeightCtrl, 'kg'),
+                child: _numberField(
+                    'Current weight', _currentWeightCtrl, 'kg', provider),
               ),
               const SizedBox(width: 10),
               Expanded(
-                child: _numberField('Target weight', _targetWeightCtrl, 'kg'),
+                child: _numberField(
+                    'Target weight', _targetWeightCtrl, 'kg', provider),
               ),
             ],
           ),
           Row(
             children: [
-              Expanded(child: _numberField('Water intake', _waterCtrl, 'L')),
+              Expanded(
+                  child:
+                      _numberField('Water intake', _waterCtrl, 'L', provider)),
               const SizedBox(width: 10),
-              Expanded(child: _numberField('Sleep', _sleepCtrl, 'hours')),
+              Expanded(
+                  child: _numberField('Sleep', _sleepCtrl, 'hours', provider)),
             ],
           ),
           const SizedBox(height: 16),
@@ -242,6 +274,11 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
         ],
       ),
     );
+  }
+
+  void _updateProfile(RecommendationProvider provider, VoidCallback update) {
+    setState(update);
+    provider.refreshInsight(_profile);
   }
 
   Widget _buildInsightCard(NutritionInsight? insight) {
@@ -411,63 +448,239 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
 
   Widget _buildChatbot(RecommendationProvider provider) {
     return _Panel(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _sectionTitle('Chatbot Nutrition Assistant'),
-          const SizedBox(height: 10),
-          if (provider.chatHistory.isEmpty)
-            const Text('Tanyakan: "Kenapa berat badanku belum turun?"',
-                style: TextStyle(color: Colors.grey)),
-          ...provider.chatHistory.map((message) => Align(
-                alignment: message.role == 'user'
-                    ? Alignment.centerRight
-                    : Alignment.centerLeft,
-                child: Container(
-                  margin: const EdgeInsets.symmetric(vertical: 5),
-                  padding: const EdgeInsets.all(12),
-                  constraints: const BoxConstraints(maxWidth: 280),
-                  decoration: BoxDecoration(
-                    color: message.role == 'user'
-                        ? Colors.green.shade100
-                        : Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(14),
-                  ),
-                  child: Text(message.text),
-                ),
-              )),
-          if (provider.isChatLoading)
-            const Padding(
-              padding: EdgeInsets.all(8),
-              child: LinearProgressIndicator(),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: _showChatAssistant,
+        child: Row(
+          children: [
+            Container(
+              width: 52,
+              height: 52,
+              decoration: BoxDecoration(
+                color: const Color(0xFF31CFA3),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: const Icon(Icons.chat_bubble_outline, color: Colors.white),
             ),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: _chatCtrl,
-                  minLines: 1,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                    hintText: 'Tanya pola makanmu...',
-                  ),
-                ),
+            const SizedBox(width: 14),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('AI Nutrition Chat',
+                      style:
+                          TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+                  SizedBox(height: 4),
+                  Text('Tanya kalori, pola makan, berat badan, atau meal plan.',
+                      style: TextStyle(color: Colors.grey, fontSize: 12)),
+                ],
               ),
-              IconButton(
-                onPressed: provider.isChatLoading
-                    ? null
-                    : () {
-                        final text = _chatCtrl.text;
-                        _chatCtrl.clear();
-                        provider.askAssistant(
-                            profile: _profile, question: text);
-                      },
-                icon: const Icon(Icons.send),
-              ),
-            ],
-          ),
-        ],
+            ),
+            const Icon(Icons.keyboard_arrow_up_rounded),
+          ],
+        ),
       ),
+    );
+  }
+
+  void _showChatAssistant() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.82,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          builder: (context, scrollController) {
+            return Consumer<RecommendationProvider>(
+              builder: (context, provider, _) {
+                return Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius:
+                        BorderRadius.vertical(top: Radius.circular(28)),
+                  ),
+                  child: Column(
+                    children: [
+                      Container(
+                        width: 72,
+                        height: 5,
+                        margin: const EdgeInsets.only(top: 12, bottom: 18),
+                        decoration: BoxDecoration(
+                          color: Colors.blueGrey.shade100,
+                          borderRadius: BorderRadius.circular(99),
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 22),
+                        child: Row(
+                          children: [
+                            const Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('AI Nutrition Assistant',
+                                      style: TextStyle(
+                                          fontSize: 22,
+                                          fontWeight: FontWeight.w800)),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Ask about calories, habits, budget meals & goals',
+                                    style: TextStyle(
+                                        color: Colors.grey, fontSize: 13),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            IconButton.filledTonal(
+                              onPressed: () => Navigator.pop(context),
+                              icon: const Icon(Icons.close),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Divider(height: 26),
+                      Expanded(
+                        child: provider.chatHistory.isEmpty
+                            ? ListView(
+                                controller: scrollController,
+                                padding: const EdgeInsets.all(24),
+                                children: const [
+                                  SizedBox(height: 90),
+                                  CircleAvatar(
+                                    radius: 46,
+                                    backgroundColor: Color(0xFF31CFA3),
+                                    child: Icon(Icons.chat_bubble_outline,
+                                        color: Colors.white, size: 42),
+                                  ),
+                                  SizedBox(height: 24),
+                                  Text(
+                                    'Ask me anything about your nutrition',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                        fontSize: 21,
+                                        fontWeight: FontWeight.w800),
+                                  ),
+                                  SizedBox(height: 10),
+                                  Text(
+                                    'Get personal advice based on your saved meals, activity, weight goal, sleep, water intake, and weekly pattern.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                        color: Colors.grey, height: 1.45),
+                                  ),
+                                ],
+                              )
+                            : ListView(
+                                controller: scrollController,
+                                padding:
+                                    const EdgeInsets.fromLTRB(18, 4, 18, 18),
+                                children: provider.chatHistory
+                                    .map((message) => Align(
+                                          alignment: message.role == 'user'
+                                              ? Alignment.centerRight
+                                              : Alignment.centerLeft,
+                                          child: Container(
+                                            margin: const EdgeInsets.symmetric(
+                                                vertical: 6),
+                                            padding: const EdgeInsets.all(13),
+                                            constraints: BoxConstraints(
+                                              maxWidth: MediaQuery.of(context)
+                                                      .size
+                                                      .width *
+                                                  0.76,
+                                            ),
+                                            decoration: BoxDecoration(
+                                              color: message.role == 'user'
+                                                  ? const Color(0xFF31CFA3)
+                                                  : const Color(0xFFF1F6F8),
+                                              borderRadius:
+                                                  BorderRadius.circular(18),
+                                            ),
+                                            child: Text(
+                                              message.text,
+                                              style: TextStyle(
+                                                color: message.role == 'user'
+                                                    ? Colors.white
+                                                    : Colors.black87,
+                                              ),
+                                            ),
+                                          ),
+                                        ))
+                                    .toList(),
+                              ),
+                      ),
+                      if (provider.isChatLoading)
+                        const LinearProgressIndicator(minHeight: 2),
+                      SafeArea(
+                        top: false,
+                        child: Container(
+                          padding: EdgeInsets.only(
+                            left: 18,
+                            right: 18,
+                            top: 12,
+                            bottom:
+                                12 + MediaQuery.of(context).viewInsets.bottom,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            border: Border(
+                              top: BorderSide(color: Colors.grey.shade200),
+                            ),
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: TextField(
+                                  controller: _chatCtrl,
+                                  minLines: 1,
+                                  maxLines: 4,
+                                  decoration: InputDecoration(
+                                    hintText: 'Ask about your meals...',
+                                    filled: true,
+                                    fillColor: const Color(0xFFF2F8FA),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(24),
+                                      borderSide: BorderSide.none,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                              SizedBox(
+                                width: 56,
+                                height: 56,
+                                child: FloatingActionButton(
+                                  heroTag: 'nutrition-chat-send',
+                                  elevation: 0,
+                                  backgroundColor: const Color(0xFF31CFA3),
+                                  onPressed: provider.isChatLoading
+                                      ? null
+                                      : () {
+                                          final text = _chatCtrl.text.trim();
+                                          if (text.isEmpty) return;
+                                          _chatCtrl.clear();
+                                          provider.askAssistant(
+                                              profile: _profile,
+                                              question: text);
+                                        },
+                                  child: const Icon(Icons.send_rounded,
+                                      color: Colors.white),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
     );
   }
 
@@ -535,13 +748,14 @@ class _SaranMenuPageState extends State<SaranMenuPage> {
     );
   }
 
-  Widget _numberField(
-      String label, TextEditingController controller, String suffix) {
+  Widget _numberField(String label, TextEditingController controller,
+      String suffix, RecommendationProvider provider) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextField(
         controller: controller,
         keyboardType: TextInputType.number,
+        onChanged: (_) => provider.refreshInsight(_profile),
         decoration: InputDecoration(labelText: label, suffixText: suffix),
       ),
     );
@@ -716,11 +930,11 @@ class _MiniBarChart extends StatelessWidget {
         ? 1
         : values.reduce((a, b) => a > b ? a : b).clamp(1, 10000);
     return SizedBox(
-      height: 90,
+      height: 112,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: values.asMap().entries.map((entry) {
-          final height = 20 + (entry.value / maxValue) * 60;
+          final height = 18 + (entry.value / maxValue) * 58;
           return Expanded(
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 3),

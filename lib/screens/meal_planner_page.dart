@@ -967,7 +967,7 @@ class _SearchWidgetState extends State<_SearchWidget> {
                 _includeOnlineSearch
                     ? "Gerakkan HP untuk memilih random dari MealDB."
                     : "Gerakkan HP untuk memilih random dari menu yang kamu simpan.",
-                style: TextStyle(color: Colors.grey),
+                style: const TextStyle(color: Colors.grey),
                 textAlign: TextAlign.center,
               ),
               if (_isPickingRandomMealDb) ...[

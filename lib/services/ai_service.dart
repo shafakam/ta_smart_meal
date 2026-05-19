@@ -105,21 +105,97 @@ Gunakan imageUrl kosong string jika tidak punya gambar.
     required String question,
     required String insightSummary,
   }) async {
+    if (!_isNutritionScope(question)) {
+      return 'Aku bisa bantu seputar makanan, nutrisi, diet, olahraga, hidrasi, tidur, berat badan, meal plan, dan budget makan. Untuk topik di luar itu aku belum bisa jawab di SmartBite. Coba tanya misalnya: "menu tinggi protein apa yang cocok buat aku?"';
+    }
+
+    final recentHistory = history.length > 1
+        ? history.sublist(max(0, history.length - 9), history.length - 1)
+        : <NutritionChatMessage>[];
     final context = '''
 Profil user: ${jsonEncode(profile.toJson())}
 Insight: $insightSummary
 Riwayat/menu tersimpan: ${meals.map((meal) => '${meal.name} (${meal.calories} kcal, Rp${meal.price.round()}, ${meal.mealTime})').join('; ')}
-Pertanyaan user: $question
+PERTANYAAN USER YANG HARUS DIJAWAB LANGSUNG: "$question"
 
-Jawab dalam Bahasa Indonesia, singkat, friendly, actionable. Jangan diagnosis medis.
+Kamu adalah AI Nutrition Assistant untuk aplikasi SmartBite.
+Tugasmu hanya menjawab topik makanan, nutrisi, diet, olahraga, hidrasi, tidur, berat badan, meal plan, dan budget makan.
+Jika pertanyaan keluar dari topik itu, tolak singkat dan arahkan user balik ke kesehatan makanan/olahraga.
+Jawab dalam Bahasa Indonesia yang natural, personal, dan langsung sesuai pertanyaan user.
+Jangan memberi jawaban generik yang sama untuk semua pertanyaan.
+Mulai jawaban dengan jawaban inti untuk pertanyaan user, bukan rangkuman insight.
+Contoh: kalau user tanya "pisang boleh ga", jawab tentang pisang dulu.
+Gunakan angka/data user kalau relevan, misalnya kalori, goal, aktivitas, tidur, air, dan menu tersimpan.
+Berikan saran actionable secukupnya, tidak harus selalu format bullet. Jangan memberi diagnosis medis.
+Kalau data belum cukup, bilang data apa yang perlu ditambah dan tetap beri saran praktis.
 ''';
 
     final provider = _provider.toLowerCase();
     final answer = provider == 'openrouter'
-        ? await _chatOpenRouter(context, history)
-        : await _chatGemini(context, history);
+        ? await _chatOpenRouter(context, recentHistory)
+        : await _chatGemini(context, recentHistory);
     return answer ??
         _localChatAnswer(question: question, insightSummary: insightSummary);
+  }
+
+  bool _isNutritionScope(String question) {
+    final lower = question.toLowerCase();
+    final allowed = [
+      'makan',
+      'menu',
+      'nutrisi',
+      'gizi',
+      'diet',
+      'kalori',
+      'protein',
+      'karbo',
+      'lemak',
+      'gula',
+      'snack',
+      'sarapan',
+      'siang',
+      'malam',
+      'berat',
+      'turun',
+      'naik',
+      'otot',
+      'olahraga',
+      'workout',
+      'jalan',
+      'lari',
+      'aktivitas',
+      'air',
+      'minum',
+      'hidrasi',
+      'tidur',
+      'meal',
+      'plan',
+      'budget',
+      'sehat',
+      'obes',
+      'bmi',
+      'buah',
+      'sayur',
+      'pisang',
+      'apel',
+      'nasi',
+      'ayam',
+      'telur',
+      'ikan',
+      'tahu',
+      'tempe',
+      'susu',
+      'yogurt',
+      'oat',
+      'roti',
+      'mie',
+      'kopi',
+      'teh',
+      'boleh',
+      'aman',
+      'bagus',
+    ];
+    return allowed.any(lower.contains);
   }
 
   Future<List<Meal>?> _getGeminiRecommendations(String prompt) async {
@@ -244,6 +320,12 @@ Jawab dalam Bahasa Indonesia, singkat, friendly, actionable. Jangan diagnosis me
     List<NutritionChatMessage> history,
   ) async {
     if (_geminiApiKey.isEmpty) return null;
+    final historyText = history.isEmpty
+        ? 'Belum ada riwayat chat.'
+        : history
+            .map((message) =>
+                '${message.role == 'user' ? 'User' : 'Assistant'}: ${message.text}')
+            .join('\n');
     final url = Uri.parse(
       'https://generativelanguage.googleapis.com/v1beta/models/$_geminiModel:generateContent?key=$_geminiApiKey',
     );
@@ -254,25 +336,31 @@ Jawab dalam Bahasa Indonesia, singkat, friendly, actionable. Jangan diagnosis me
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode({
               'contents': [
-                ...history.take(8).map((message) => {
-                      'role': message.role == 'user' ? 'user' : 'model',
-                      'parts': [
-                        {'text': message.text}
-                      ]
-                    }),
                 {
                   'role': 'user',
                   'parts': [
-                    {'text': prompt}
+                    {
+                      'text': 'Riwayat chat terakhir:\n$historyText\n\n$prompt',
+                    }
                   ]
                 }
               ],
+              'generationConfig': {
+                'temperature': 0.75,
+                'topP': 0.9,
+              },
             }),
           )
           .timeout(const Duration(seconds: 25));
       if (response.statusCode != 200) {
         debugPrint(
             'Gemini chat error ${response.statusCode}: ${response.body}');
+        if (response.statusCode == 429) {
+          return 'Gemini API lagi kena limit/kuota (429 Too Many Requests), jadi AI asli belum bisa menjawab sekarang. Coba tunggu beberapa menit, pakai API key/project lain, atau aktifkan billing/cek quota Gemini.';
+        }
+        if (response.statusCode == 400 || response.statusCode == 403) {
+          return 'Gemini API belum bisa dipakai. Cek API key, model Gemini, dan permission project di Google AI Studio.';
+        }
         return null;
       }
       final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -307,7 +395,7 @@ Jawab dalam Bahasa Indonesia, singkat, friendly, actionable. Jangan diagnosis me
                   'content':
                       'Kamu AI Nutrition Assistant. Jawab singkat, suportif, dan tidak memberi diagnosis medis.',
                 },
-                ...history.take(8).map((message) => {
+                ...history.map((message) => {
                       'role': message.role,
                       'content': message.text,
                     }),
@@ -561,16 +649,41 @@ Jawab dalam Bahasa Indonesia, singkat, friendly, actionable. Jangan diagnosis me
     required String insightSummary,
   }) {
     final lower = question.toLowerCase();
+    final foodAnswer = _foodSpecificFallback(lower);
+    if (foodAnswer != null) return foodAnswer;
+
     if (lower.contains('kalori')) {
-      return '$insightSummary Coba cek total kalori mingguan di kartu insight dan pertahankan porsi yang stabil.';
+      return '$insightSummary\n\nLangkah praktis:\n1. Bandingkan rata-rata kalori dengan target harianmu.\n2. Simpan menu yang benar-benar kamu makan supaya perhitungannya makin akurat.\n3. Kalau surplus, kecilkan porsi karbo/minyak dulu sebelum menghapus lauk protein.';
     }
     if (lower.contains('berat') || lower.contains('turun')) {
-      return 'Berat badan bisa stagnan karena surplus kecil, kurang tidur, atau aktivitas rendah. Mulai dari defisit ringan, protein cukup, dan tidur 7-8 jam.';
+      return 'Berat badan bisa stagnan karena surplus kecil, kurang tidur, aktivitas rendah, atau retensi air.\n\nCoba mulai dari 3 hal: jaga defisit ringan, makan protein di tiap waktu makan, dan tidur mendekati 7-8 jam.';
     }
     if (lower.contains('kurangi')) {
-      return 'Kurangi snack malam, minuman manis, dan makanan tinggi minyak. Ganti dengan protein lean, buah utuh, dan air putih.';
+      return 'Yang paling aman dikurangi dulu: minuman manis, snack malam, gorengan, dan saus tinggi gula.\n\nGantinya pilih air putih, buah utuh, telur/tahu/tempe/ayam, dan sayur supaya tetap kenyang.';
     }
-    return 'Mulai dari target kecil: makan protein di tiap waktu makan, minum cukup air, dan jaga kalori mendekati target harian.';
+    return '$insightSummary\n\nSaran cepat: makan protein di tiap waktu makan, minum cukup air, dan jaga kalori mendekati target harian. Simpan menu harianmu agar rekomendasi berikutnya lebih personal.';
+  }
+
+  String? _foodSpecificFallback(String lower) {
+    if (lower.contains('pisang')) {
+      return 'Boleh. Pisang itu sehat dan aman buat kebanyakan orang karena ada karbohidrat, kalium, dan serat.\n\nKalau goal kamu weight loss, cukup 1 buah sedang sebagai snack atau sebelum olahraga. Kalau dimakan banyak, kalorinya tetap bisa numpuk, jadi jangan sampai mengganti porsi protein utama.';
+    }
+    if (lower.contains('nasi')) {
+      return 'Boleh makan nasi, tapi porsinya perlu disesuaikan. Untuk weight loss, mulai dari 1/2 sampai 1 centong per makan lalu tambah lauk protein dan sayur supaya kenyang lebih lama.';
+    }
+    if (lower.contains('telur')) {
+      return 'Telur boleh dan bagus untuk protein. Bisa jadi sarapan atau lauk praktis. Kalau sedang jaga kalori, rebus atau dadar dengan sedikit minyak lebih aman daripada digoreng banyak minyak.';
+    }
+    if (lower.contains('ayam')) {
+      return 'Ayam boleh, terutama bagian dada atau ayam tanpa kulit kalau kamu mau tinggi protein dan lebih rendah lemak. Cara masak panggang, rebus, atau tumis sedikit minyak biasanya lebih cocok.';
+    }
+    if (lower.contains('kopi')) {
+      return 'Kopi boleh, tapi perhatikan gula dan krimer. Kopi hitam atau sedikit susu lebih aman untuk kalori. Hindari minum terlalu malam supaya tidur tidak terganggu.';
+    }
+    if (lower.contains('buah')) {
+      return 'Buah boleh dan bagus untuk serat serta mikronutrien. Tetap atur porsi, terutama buah yang manis, dan lebih baik buah utuh daripada jus manis.';
+    }
+    return null;
   }
 }
 

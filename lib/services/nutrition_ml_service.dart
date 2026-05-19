@@ -10,9 +10,6 @@ class NutritionMLService {
   }) {
     final meals = savedMeals.isEmpty ? _sampleMeals(profile) : savedMeals;
     final baseDaily = meals.fold<int>(0, (sum, meal) => sum + meal.calories);
-    final averageCalories = meals.isEmpty
-        ? profile.targetCalories
-        : baseDaily / max(1, meals.length);
     final activityAdjustment = switch (profile.activityLevel) {
       'Sedentary' => -150,
       'Lightly Active' => 0,
@@ -20,12 +17,49 @@ class NutritionMLService {
       'Very Active' => 300,
       _ => 0,
     };
-    final maintenance = profile.targetCalories + activityAdjustment;
+    final goalAdjustment = switch (profile.goalType) {
+      'Weight Loss' => -250,
+      'Muscle Gain' => 250,
+      _ => 0,
+    };
+    final preferenceAdjustment = switch (profile.eatingPreference) {
+      'High Protein' => -40,
+      'Low Carb' => -60,
+      'Sugar Control' => -80,
+      _ => 0,
+    };
+    final maintenance =
+        profile.targetCalories + activityAdjustment + goalAdjustment;
+    final weightGap = profile.currentWeight - profile.targetWeight;
+    final sleepSignal = (profile.sleepDuration - 7) * 35;
+    final waterSignal = (profile.dailyWaterIntake - 2) * 45;
+    final weightSignal = weightGap * 18;
+    final preferenceSignal = preferenceAdjustment * 0.5;
+    final lifestyleAverageSignal =
+        sleepSignal + waterSignal + weightSignal + preferenceSignal;
+    final averageCalories = meals.isEmpty
+        ? profile.targetCalories + lifestyleAverageSignal
+        : (baseDaily / max(1, meals.length)) + lifestyleAverageSignal;
     final calorieDelta = averageCalories - maintenance;
     final predictedWeightChange = (calorieDelta * 7) / 7700;
     final dailyCalories = List.generate(7, (index) {
       final wave = ((index % 3) - 1) * 80;
-      return max(0, (averageCalories + wave).round());
+      final dayWeightSignal = weightGap * (index + 1) * 5;
+      final sleepWave = (profile.sleepDuration - 7) * (index.isEven ? 28 : 16);
+      final waterWave =
+          (profile.dailyWaterIntake - 2) * (index % 2 == 0 ? 36 : 20);
+      final lifestyleSignal =
+          (activityAdjustment * 0.18) + (preferenceAdjustment * 0.35);
+      return max(
+        0,
+        (averageCalories +
+                wave +
+                lifestyleSignal +
+                dayWeightSignal +
+                sleepWave +
+                waterWave)
+            .round(),
+      );
     });
     final weightDirection = profile.targetWeight - profile.currentWeight;
     final weightProgress = List.generate(6, (index) {
@@ -37,6 +71,14 @@ class NutritionMLService {
     if (calorieDelta > 250) warnings.add('Overeating terdeteksi minggu ini.');
     if (profile.sleepDuration < 6) warnings.add('Durasi tidur masih rendah.');
     if (profile.dailyWaterIntake < 1.8) warnings.add('Asupan air belum ideal.');
+    if (profile.activityLevel == 'Sedentary' &&
+        profile.goalType == 'Weight Loss') {
+      warnings.add('Aktivitas rendah bisa memperlambat defisit kalori.');
+    }
+    if (profile.currentWeight < profile.targetWeight &&
+        profile.goalType == 'Weight Loss') {
+      warnings.add('Target weight lebih tinggi dari berat saat ini.');
+    }
     if (_likelyLowProtein(meals, profile)) {
       warnings.add('Protein tampak kurang untuk goal kamu.');
     }
@@ -50,8 +92,14 @@ class NutritionMLService {
         'Jaga defisit ringan 300-500 kcal dan pilih lauk tinggi protein.',
       if (profile.goalType == 'Muscle Gain')
         'Tambahkan protein di setiap makan dan kalori surplus secukupnya.',
+      if (profile.activityLevel == 'Very Active')
+        'Siapkan snack sehat sebelum/sesudah aktivitas supaya energi stabil.',
+      if (profile.activityLevel == 'Sedentary')
+        'Tambahkan jalan ringan 10-15 menit setelah makan bila memungkinkan.',
       if (profile.eatingPreference == 'Sugar Control')
         'Ganti minuman manis dengan air putih atau infused water.',
+      if (profile.eatingPreference == 'High Protein')
+        'Prioritaskan ayam, telur, ikan, tahu, tempe, atau yogurt plain.',
       if (profile.eatingPreference == 'Low Carb')
         'Prioritaskan sayur, protein, dan karbohidrat kompleks porsi kecil.',
       'Pertahankan jam makan konsisten dan hindari snack berat malam.',
@@ -66,7 +114,7 @@ class NutritionMLService {
       habitWarnings: warnings,
       recommendations: recommendations.take(4).toList(),
       summary:
-          'Kalori mingguan kamu ${calorieDelta >= 0 ? 'surplus' : 'defisit'} sekitar ${calorieDelta.abs().round()} kcal dari target. Fokus perbaikan utama: ${warnings.first.toLowerCase()}',
+          'Dengan goal ${profile.goalType}, aktivitas ${profile.activityLevel}, dan preferensi ${profile.eatingPreference}, kalori mingguan kamu ${calorieDelta >= 0 ? 'surplus' : 'defisit'} sekitar ${calorieDelta.abs().round()} kcal dari target. Fokus utama: ${warnings.first.toLowerCase()}',
       predictedWeightChange: predictedWeightChange,
     );
   }
